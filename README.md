@@ -2,20 +2,39 @@
 
 [Project X](https://github.com/XTLS) originates from XTLS protocol, provides a set of network tools such as [Xray-core](https://github.com/XTLS/Xray-core) and [Xray-flutter](https://github.com/XTLS/Xray-flutter).
 
+## License
+
+[Mozilla Public License Version 2.0](https://github.com/XTLS/Xray-core/blob/main/LICENSE)
+
 ## Installation
 
-- Linux script
+- Linux Script
   - [Xray-install](https://github.com/XTLS/Xray-install)
+  - [Xray-script](https://github.com/kirin10000/Xray-script)
 - Docker
   - [teddysun/xray](https://hub.docker.com/r/teddysun/xray)
+  - [charlieethan](https://github.com/users/charlieethan/packages/container/package/xray)
+- One Click
+  - [ProxySU](https://github.com/proxysu/ProxySU)
+  - [v2ray-agent](https://github.com/mack-a/v2ray-agent)
+- Magisk
+  - [Xray4Magisk](https://github.com/CerteKim/Xray4Magisk)
+  - [Xray_For_Magisk](https://github.com/E7KMbb/Xray_For_Magisk)
 
 ## Usage
 
 [Xray-examples](https://github.com/XTLS/Xray-examples) / [VLESS-TCP-XTLS-WHATEVER](https://github.com/XTLS/Xray-examples/tree/main/VLESS-TCP-XTLS-WHATEVER)
 
-## License
+## GUI Clients
 
-[Mozilla Public License Version 2.0](https://github.com/XTLS/Xray-core/blob/main/LICENSE)
+- OpenWrt
+  - [PassWall](https://github.com/xiaorouji/openwrt-passwall)
+- Windows
+  - [v2rayN](https://github.com/2dust/v2rayN)
+- Android
+  - [v2rayNG](https://github.com/2dust/v2rayNG)
+- iOS / Mac
+  - [Shadowrocket](https://apps.apple.com/app/shadowrocket/id932747118)
 
 ## Credits
 
@@ -52,3 +71,7 @@ go build -o xray -trimpath -ldflags "-s -w -buildid=" ./main
 [Project X](https://t.me/projectXray)
 
 [Project X Channel](https://t.me/projectXtls)
+
+## Stargazers over time
+
+[![Stargazers over time](https://starchart.cc/XTLS/Xray-core.svg)](https://starchart.cc/XTLS/Xray-core)
