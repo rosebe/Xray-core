@@ -1,5 +1,3 @@
-// +build !confonly
-
 package trojan
 
 import (
@@ -7,21 +5,21 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/buf"
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/platform"
-	"github.com/xtls/xray-core/v1/common/protocol"
-	"github.com/xtls/xray-core/v1/common/retry"
-	"github.com/xtls/xray-core/v1/common/session"
-	"github.com/xtls/xray-core/v1/common/signal"
-	"github.com/xtls/xray-core/v1/common/task"
-	core "github.com/xtls/xray-core/v1/core"
-	"github.com/xtls/xray-core/v1/features/policy"
-	"github.com/xtls/xray-core/v1/features/stats"
-	"github.com/xtls/xray-core/v1/transport"
-	"github.com/xtls/xray-core/v1/transport/internet"
-	"github.com/xtls/xray-core/v1/transport/internet/xtls"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/platform"
+	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/retry"
+	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/common/signal"
+	"github.com/xtls/xray-core/common/task"
+	core "github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/policy"
+	"github.com/xtls/xray-core/features/stats"
+	"github.com/xtls/xray-core/transport"
+	"github.com/xtls/xray-core/transport/internet"
+	"github.com/xtls/xray-core/transport/internet/xtls"
 )
 
 // Client is a inbound handler for trojan protocol
@@ -81,56 +79,63 @@ func (c *Client) Process(ctx context.Context, link *transport.Link, dialer inter
 
 	defer conn.Close()
 
-	user := server.PickUser()
-	account, ok := user.Account.(*MemoryAccount)
-	if !ok {
-		return newError("user account is not valid")
-	}
-
 	iConn := conn
 	statConn, ok := iConn.(*internet.StatCouterConnection)
 	if ok {
 		iConn = statConn.Connection
 	}
 
-	var rawConn syscall.RawConn
+	user := server.PickUser()
+	account, ok := user.Account.(*MemoryAccount)
+	if !ok {
+		return newError("user account is not valid")
+	}
 
-	connWriter := &ConnWriter{}
+	connWriter := &ConnWriter{
+		Flow: account.Flow,
+	}
+
+	var rawConn syscall.RawConn
+	var sctx context.Context
+
 	allowUDP443 := false
-	switch account.Flow {
-	case XRO + "-udp443", XRD + "-udp443":
+	switch connWriter.Flow {
+	case XRO + "-udp443", XRD + "-udp443", XRS + "-udp443":
 		allowUDP443 = true
-		account.Flow = account.Flow[:16]
+		connWriter.Flow = connWriter.Flow[:16]
 		fallthrough
-	case XRO, XRD:
+	case XRO, XRD, XRS:
 		if destination.Address.Family().IsDomain() && destination.Address.Domain() == muxCoolAddress {
-			return newError(account.Flow + " doesn't support Mux").AtWarning()
+			return newError(connWriter.Flow + " doesn't support Mux").AtWarning()
 		}
 		if destination.Network == net.Network_UDP {
 			if !allowUDP443 && destination.Port == 443 {
-				return newError(account.Flow + " stopped UDP/443").AtInfo()
+				return newError(connWriter.Flow + " stopped UDP/443").AtInfo()
 			}
+			connWriter.Flow = ""
 		} else { // enable XTLS only if making TCP request
 			if xtlsConn, ok := iConn.(*xtls.Conn); ok {
 				xtlsConn.RPRX = true
-				xtlsConn.SHOW = trojanXTLSShow
-				connWriter.Flow = account.Flow
-				if account.Flow == XRD {
-					xtlsConn.DirectMode = true
+				xtlsConn.SHOW = xtls_show
+				xtlsConn.MARK = "XTLS"
+				if connWriter.Flow == XRS {
+					sctx = ctx
+					connWriter.Flow = XRD
 				}
-				if sc, ok := xtlsConn.Connection.(syscall.Conn); ok {
-					rawConn, _ = sc.SyscallConn()
+				if connWriter.Flow == XRD {
+					xtlsConn.DirectMode = true
+					if sc, ok := xtlsConn.Connection.(syscall.Conn); ok {
+						rawConn, _ = sc.SyscallConn()
+					}
 				}
 			} else {
-				return newError(`failed to use ` + account.Flow + `, maybe "security" is not "xtls"`).AtWarning()
+				return newError(`failed to use ` + connWriter.Flow + `, maybe "security" is not "xtls"`).AtWarning()
 			}
 		}
-	case "":
+	default:
 		if _, ok := iConn.(*xtls.Conn); ok {
 			panic(`To avoid misunderstanding, you must fill in Trojan "flow" when using XTLS.`)
 		}
-	default:
-		return newError("unsupported flow " + account.Flow).AtWarning()
 	}
 
 	sessionPolicy := c.policyManager.ForLevel(user.Level)
@@ -185,7 +190,7 @@ func (c *Client) Process(ctx context.Context, link *transport.Link, dialer inter
 			if statConn != nil {
 				counter = statConn.ReadCounter
 			}
-			return ReadV(reader, link.Writer, timer, iConn.(*xtls.Conn), rawConn, counter)
+			return ReadV(reader, link.Writer, timer, iConn.(*xtls.Conn), rawConn, counter, sctx)
 		}
 		return buf.Copy(reader, link.Writer, buf.UpdateActivity(timer))
 	}
@@ -207,6 +212,6 @@ func init() {
 
 	xtlsShow := platform.NewEnvFlag("xray.trojan.xtls.show").GetValue(func() string { return defaultFlagValue })
 	if xtlsShow == "true" {
-		trojanXTLSShow = true
+		xtls_show = true
 	}
 }

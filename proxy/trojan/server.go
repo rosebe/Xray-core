@@ -1,5 +1,3 @@
-// +build !confonly
-
 package trojan
 
 import (
@@ -10,25 +8,25 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/buf"
-	"github.com/xtls/xray-core/v1/common/errors"
-	"github.com/xtls/xray-core/v1/common/log"
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/platform"
-	"github.com/xtls/xray-core/v1/common/protocol"
-	udp_proto "github.com/xtls/xray-core/v1/common/protocol/udp"
-	"github.com/xtls/xray-core/v1/common/retry"
-	"github.com/xtls/xray-core/v1/common/session"
-	"github.com/xtls/xray-core/v1/common/signal"
-	"github.com/xtls/xray-core/v1/common/task"
-	core "github.com/xtls/xray-core/v1/core"
-	"github.com/xtls/xray-core/v1/features/policy"
-	"github.com/xtls/xray-core/v1/features/routing"
-	"github.com/xtls/xray-core/v1/features/stats"
-	"github.com/xtls/xray-core/v1/transport/internet"
-	"github.com/xtls/xray-core/v1/transport/internet/udp"
-	"github.com/xtls/xray-core/v1/transport/internet/xtls"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/errors"
+	"github.com/xtls/xray-core/common/log"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/platform"
+	"github.com/xtls/xray-core/common/protocol"
+	udp_proto "github.com/xtls/xray-core/common/protocol/udp"
+	"github.com/xtls/xray-core/common/retry"
+	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/common/signal"
+	"github.com/xtls/xray-core/common/task"
+	core "github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/policy"
+	"github.com/xtls/xray-core/features/routing"
+	"github.com/xtls/xray-core/features/stats"
+	"github.com/xtls/xray-core/transport/internet"
+	"github.com/xtls/xray-core/transport/internet/udp"
+	"github.com/xtls/xray-core/transport/internet/xtls"
 )
 
 func init() {
@@ -40,7 +38,7 @@ func init() {
 
 	xtlsShow := platform.NewEnvFlag("xray.trojan.xtls.show").GetValue(func() string { return defaultFlagValue })
 	if xtlsShow == "true" {
-		trojanXTLSShow = true
+		xtls_show = true
 	}
 }
 
@@ -221,7 +219,8 @@ func (s *Server) Process(ctx context.Context, network net.Network, conn internet
 			}
 			if xtlsConn, ok := iConn.(*xtls.Conn); ok {
 				xtlsConn.RPRX = true
-				xtlsConn.SHOW = trojanXTLSShow
+				xtlsConn.SHOW = xtls_show
+				xtlsConn.MARK = "XTLS"
 				if clientReader.Flow == XRD {
 					xtlsConn.DirectMode = true
 					if sc, ok := xtlsConn.Connection.(syscall.Conn); ok {
@@ -232,11 +231,9 @@ func (s *Server) Process(ctx context.Context, network net.Network, conn internet
 				return newError(`failed to use ` + clientReader.Flow + `, maybe "security" is not "xtls"`).AtWarning()
 			}
 		} else {
-			return newError("unable to use ", clientReader.Flow).AtWarning()
+			return newError(account.Password + " is not able to use " + clientReader.Flow).AtWarning()
 		}
 	case "":
-	default:
-		return newError("unsupported flow " + account.Flow).AtWarning()
 	}
 
 	ctx = log.ContextWithAccessMessage(ctx, &log.AccessMessage{
@@ -310,7 +307,7 @@ func (s *Server) handleConnection(ctx context.Context, sessionPolicy policy.Sess
 			if statConn != nil {
 				counter = statConn.ReadCounter
 			}
-			err = ReadV(clientReader, link.Writer, timer, iConn.(*xtls.Conn), rawConn, counter)
+			err = ReadV(clientReader, link.Writer, timer, iConn.(*xtls.Conn), rawConn, counter, nil)
 		} else {
 			err = buf.Copy(clientReader, link.Writer, buf.UpdateActivity(timer))
 		}

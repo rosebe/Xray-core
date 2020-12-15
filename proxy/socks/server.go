@@ -1,5 +1,3 @@
-// +build !confonly
-
 package socks
 
 import (
@@ -7,21 +5,21 @@ import (
 	"io"
 	"time"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/buf"
-	"github.com/xtls/xray-core/v1/common/log"
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/protocol"
-	udp_proto "github.com/xtls/xray-core/v1/common/protocol/udp"
-	"github.com/xtls/xray-core/v1/common/session"
-	"github.com/xtls/xray-core/v1/common/signal"
-	"github.com/xtls/xray-core/v1/common/task"
-	"github.com/xtls/xray-core/v1/core"
-	"github.com/xtls/xray-core/v1/features"
-	"github.com/xtls/xray-core/v1/features/policy"
-	"github.com/xtls/xray-core/v1/features/routing"
-	"github.com/xtls/xray-core/v1/transport/internet"
-	"github.com/xtls/xray-core/v1/transport/internet/udp"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/log"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol"
+	udp_proto "github.com/xtls/xray-core/common/protocol/udp"
+	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/common/signal"
+	"github.com/xtls/xray-core/common/task"
+	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features"
+	"github.com/xtls/xray-core/features/policy"
+	"github.com/xtls/xray-core/features/routing"
+	"github.com/xtls/xray-core/transport/internet"
+	"github.com/xtls/xray-core/transport/internet/udp"
 )
 
 // Server is a SOCKS 5 proxy server
@@ -128,7 +126,7 @@ func (s *Server) processTCP(ctx context.Context, conn internet.Connection, dispa
 			})
 		}
 
-		return s.transport(ctx, reader, conn, dest, dispatcher)
+		return s.transport(ctx, reader, conn, dest, dispatcher, inbound)
 	}
 
 	if request.Command == protocol.RequestCommandUDP {
@@ -144,9 +142,13 @@ func (*Server) handleUDP(c io.Reader) error {
 	return common.Error2(io.Copy(buf.DiscardBytes, c))
 }
 
-func (s *Server) transport(ctx context.Context, reader io.Reader, writer io.Writer, dest net.Destination, dispatcher routing.Dispatcher) error {
+func (s *Server) transport(ctx context.Context, reader io.Reader, writer io.Writer, dest net.Destination, dispatcher routing.Dispatcher, inbound *session.Inbound) error {
 	ctx, cancel := context.WithCancel(ctx)
 	timer := signal.CancelAfterInactivity(ctx, cancel, s.policy().Timeouts.ConnectionIdle)
+
+	if inbound != nil {
+		inbound.Timer = timer
+	}
 
 	plcy := s.policy()
 	ctx = policy.ContextWithBufferPolicy(ctx, plcy.Buffer)

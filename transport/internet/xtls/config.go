@@ -1,5 +1,3 @@
-// +build !confonly
-
 package xtls
 
 import (
@@ -9,9 +7,9 @@ import (
 
 	xtls "github.com/xtls/go"
 
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/protocol/tls/cert"
-	"github.com/xtls/xray-core/v1/transport/internet"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol/tls/cert"
+	"github.com/xtls/xray-core/transport/internet"
 )
 
 var (
