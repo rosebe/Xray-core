@@ -1,26 +1,24 @@
-// +build !confonly
-
 package dokodemo
 
-//go:generate go run github.com/xtls/xray-core/v1/common/errors/errorgen
+//go:generate go run github.com/xtls/xray-core/common/errors/errorgen
 
 import (
 	"context"
 	"sync/atomic"
 	"time"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/buf"
-	"github.com/xtls/xray-core/v1/common/log"
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/protocol"
-	"github.com/xtls/xray-core/v1/common/session"
-	"github.com/xtls/xray-core/v1/common/signal"
-	"github.com/xtls/xray-core/v1/common/task"
-	"github.com/xtls/xray-core/v1/core"
-	"github.com/xtls/xray-core/v1/features/policy"
-	"github.com/xtls/xray-core/v1/features/routing"
-	"github.com/xtls/xray-core/v1/transport/internet"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/log"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/common/signal"
+	"github.com/xtls/xray-core/common/task"
+	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/policy"
+	"github.com/xtls/xray-core/features/routing"
+	"github.com/xtls/xray-core/transport/internet"
 )
 
 func init() {
@@ -103,7 +101,8 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 		return newError("unable to get destination")
 	}
 
-	if inbound := session.InboundFromContext(ctx); inbound != nil {
+	inbound := session.InboundFromContext(ctx)
+	if inbound != nil {
 		inbound.User = &protocol.MemoryUser{
 			Level: d.config.UserLevel,
 		}
@@ -120,6 +119,10 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 	plcy := d.policy()
 	ctx, cancel := context.WithCancel(ctx)
 	timer := signal.CancelAfterInactivity(ctx, cancel, plcy.Timeouts.ConnectionIdle)
+
+	if inbound != nil {
+		inbound.Timer = timer
+	}
 
 	ctx = policy.ContextWithBufferPolicy(ctx, plcy.Buffer)
 	link, err := dispatcher.Dispatch(ctx, dest)

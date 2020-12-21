@@ -1,5 +1,3 @@
-// +build !confonly
-
 package http
 
 import (
@@ -9,12 +7,12 @@ import (
 	"net/url"
 	"sync"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/buf"
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/transport/internet"
-	"github.com/xtls/xray-core/v1/transport/internet/tls"
-	"github.com/xtls/xray-core/v1/transport/pipe"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/transport/internet"
+	"github.com/xtls/xray-core/transport/internet/tls"
+	"github.com/xtls/xray-core/transport/pipe"
 	"golang.org/x/net/http2"
 )
 
@@ -23,7 +21,7 @@ var (
 	globalDialerAccess sync.Mutex
 )
 
-func getHTTPClient(_ context.Context, dest net.Destination, tlsSettings *tls.Config) (*http.Client, error) {
+func getHTTPClient(ctx context.Context, dest net.Destination, tlsSettings *tls.Config) (*http.Client, error) {
 	globalDialerAccess.Lock()
 	defer globalDialerAccess.Unlock()
 
@@ -50,7 +48,7 @@ func getHTTPClient(_ context.Context, dest net.Destination, tlsSettings *tls.Con
 			}
 			address := net.ParseAddress(rawHost)
 
-			pconn, err := internet.DialSystem(context.Background(), net.TCPDestination(address, port), nil)
+			pconn, err := internet.DialSystem(ctx, net.TCPDestination(address, port), nil)
 			if err != nil {
 				return nil, err
 			}

@@ -9,13 +9,15 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
-	"github.com/xtls/xray-core/v1/common/cmdarg"
-	"github.com/xtls/xray-core/v1/common/platform"
-	"github.com/xtls/xray-core/v1/core"
-	"github.com/xtls/xray-core/v1/main/commands/base"
+	"github.com/xtls/xray-core/common/cmdarg"
+	"github.com/xtls/xray-core/common/platform"
+	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/infra/conf"
+	"github.com/xtls/xray-core/main/commands/base"
 )
 
 var cmdRun = &base.Command{
@@ -64,7 +66,7 @@ func executeRun(cmd *base.Command, args []string) {
 	printVersion()
 	server, err := startXray()
 	if err != nil {
-		base.Fatalf("Filed to start: %s", err)
+		base.Fatalf("Failed to start: %s", err)
 	}
 
 	if *test {
@@ -74,12 +76,17 @@ func executeRun(cmd *base.Command, args []string) {
 	}
 
 	if err := server.Start(); err != nil {
-		base.Fatalf("Filed to start: %s", err)
+		base.Fatalf("Failed to start: %s", err)
 	}
 	defer server.Close()
 
+	conf.FileCache = nil
+	conf.IPCache = nil
+	conf.SiteCache = nil
+
 	// Explicitly triggering GC to remove garbage from config loading.
 	runtime.GC()
+	debug.FreeOSMemory()
 
 	{
 		osSignals := make(chan os.Signal, 1)
@@ -157,7 +164,7 @@ func startXray() (core.Server, error) {
 
 	config, err := core.LoadConfig(getConfigFormat(), configFiles[0], configFiles)
 	if err != nil {
-		return nil, newError("failed to read config files: [", configFiles.String(), "]").Base(err)
+		return nil, newError("failed to load config files: [", configFiles.String(), "]").Base(err)
 	}
 
 	server, err := core.New(config)

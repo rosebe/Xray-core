@@ -1,17 +1,16 @@
-// +build !confonly
-
 package xtls
 
 import (
 	"crypto/x509"
+	"strings"
 	"sync"
 	"time"
 
 	xtls "github.com/xtls/go"
 
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/protocol/tls/cert"
-	"github.com/xtls/xray-core/v1/transport/internet"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol/tls/cert"
+	"github.com/xtls/xray-core/transport/internet"
 )
 
 var (
@@ -203,6 +202,42 @@ func (c *Config) GetXTLSConfig(opts ...Option) *xtls.Config {
 	if len(config.NextProtos) == 0 {
 		config.NextProtos = []string{"h2", "http/1.1"}
 	}
+
+	switch c.MinVersion {
+	case "1.0":
+		config.MinVersion = xtls.VersionTLS10
+	case "1.1":
+		config.MinVersion = xtls.VersionTLS11
+	case "1.2":
+		config.MinVersion = xtls.VersionTLS12
+	case "1.3":
+		config.MinVersion = xtls.VersionTLS13
+	}
+
+	switch c.MaxVersion {
+	case "1.0":
+		config.MaxVersion = xtls.VersionTLS10
+	case "1.1":
+		config.MaxVersion = xtls.VersionTLS11
+	case "1.2":
+		config.MaxVersion = xtls.VersionTLS12
+	case "1.3":
+		config.MaxVersion = xtls.VersionTLS13
+	}
+
+	if len(c.CipherSuites) > 0 {
+		id := make(map[string]uint16)
+		for _, s := range xtls.CipherSuites() {
+			id[s.Name] = s.ID
+		}
+		for _, n := range strings.Split(c.CipherSuites, ":") {
+			if id[n] != 0 {
+				config.CipherSuites = append(config.CipherSuites, id[n])
+			}
+		}
+	}
+
+	config.PreferServerCipherSuites = c.PreferServerCipherSuites
 
 	return config
 }
