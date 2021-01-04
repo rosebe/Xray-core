@@ -1,5 +1,3 @@
-// +build !confonly
-
 package dns
 
 import (
@@ -14,15 +12,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/protocol/dns"
-	"github.com/xtls/xray-core/v1/common/session"
-	"github.com/xtls/xray-core/v1/common/signal/pubsub"
-	"github.com/xtls/xray-core/v1/common/task"
-	dns_feature "github.com/xtls/xray-core/v1/features/dns"
-	"github.com/xtls/xray-core/v1/features/routing"
-	"github.com/xtls/xray-core/v1/transport/internet"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/net/cnc"
+	"github.com/xtls/xray-core/common/protocol/dns"
+	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/common/signal/pubsub"
+	"github.com/xtls/xray-core/common/task"
+	dns_feature "github.com/xtls/xray-core/features/dns"
+	"github.com/xtls/xray-core/features/routing"
+	"github.com/xtls/xray-core/transport/internet"
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -67,9 +66,9 @@ func NewDoHNameServer(url *url.URL, dispatcher routing.Dispatcher, clientIP net.
 			if err != nil {
 				return nil, err
 			}
-			return net.NewConnection(
-				net.ConnectionInputMulti(link.Writer),
-				net.ConnectionOutputMulti(link.Reader),
+			return cnc.NewConnection(
+				cnc.ConnectionInputMulti(link.Writer),
+				cnc.ConnectionOutputMulti(link.Reader),
 			), nil
 		},
 	}

@@ -1,25 +1,23 @@
-// +build !confonly
-
 package shadowsocks
 
 import (
 	"context"
 	"time"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/buf"
-	"github.com/xtls/xray-core/v1/common/log"
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/protocol"
-	udp_proto "github.com/xtls/xray-core/v1/common/protocol/udp"
-	"github.com/xtls/xray-core/v1/common/session"
-	"github.com/xtls/xray-core/v1/common/signal"
-	"github.com/xtls/xray-core/v1/common/task"
-	"github.com/xtls/xray-core/v1/core"
-	"github.com/xtls/xray-core/v1/features/policy"
-	"github.com/xtls/xray-core/v1/features/routing"
-	"github.com/xtls/xray-core/v1/transport/internet"
-	"github.com/xtls/xray-core/v1/transport/internet/udp"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/log"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol"
+	udp_proto "github.com/xtls/xray-core/common/protocol/udp"
+	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/common/signal"
+	"github.com/xtls/xray-core/common/task"
+	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/policy"
+	"github.com/xtls/xray-core/features/routing"
+	"github.com/xtls/xray-core/transport/internet"
+	"github.com/xtls/xray-core/transport/internet/udp"
 )
 
 type Server struct {
@@ -79,6 +77,15 @@ func (s *Server) handlerUDPPayload(ctx context.Context, conn internet.Connection
 		}
 
 		payload := packet.Payload
+
+		if payload.UDP != nil {
+			request = &protocol.RequestHeader{
+				User:    request.User,
+				Address: payload.UDP.Address,
+				Port:    payload.UDP.Port,
+			}
+		}
+
 		data, err := EncodeUDPPacket(request, payload.Bytes())
 		payload.Release()
 		if err != nil {
@@ -95,6 +102,8 @@ func (s *Server) handlerUDPPayload(ctx context.Context, conn internet.Connection
 		panic("no inbound metadata")
 	}
 	inbound.User = s.user
+
+	var dest *net.Destination
 
 	reader := buf.NewPacketReader(conn)
 	for {
@@ -119,21 +128,28 @@ func (s *Server) handlerUDPPayload(ctx context.Context, conn internet.Connection
 				continue
 			}
 
+			destination := request.Destination()
+
 			currentPacketCtx := ctx
-			dest := request.Destination()
 			if inbound.Source.IsValid() {
 				currentPacketCtx = log.ContextWithAccessMessage(ctx, &log.AccessMessage{
 					From:   inbound.Source,
-					To:     dest,
+					To:     destination,
 					Status: log.AccessAccepted,
 					Reason: "",
 					Email:  request.User.Email,
 				})
 			}
-			newError("tunnelling request to ", dest).WriteToLog(session.ExportIDToError(currentPacketCtx))
+			newError("tunnelling request to ", destination).WriteToLog(session.ExportIDToError(currentPacketCtx))
+
+			data.UDP = &destination
+
+			if !buf.Cone || dest == nil {
+				dest = &destination
+			}
 
 			currentPacketCtx = protocol.ContextWithRequestHeader(currentPacketCtx, request)
-			udpServer.Dispatch(currentPacketCtx, dest, data)
+			udpServer.Dispatch(currentPacketCtx, *dest, data)
 		}
 	}
 

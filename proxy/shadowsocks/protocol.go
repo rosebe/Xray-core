@@ -1,5 +1,3 @@
-// +build !confonly
-
 package shadowsocks
 
 import (
@@ -10,11 +8,11 @@ import (
 	"io"
 	"io/ioutil"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/buf"
-	"github.com/xtls/xray-core/v1/common/dice"
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/protocol"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/dice"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol"
 )
 
 const (
@@ -232,11 +230,13 @@ func (v *UDPReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 		buffer.Release()
 		return nil, err
 	}
-	_, payload, err := DecodeUDPPacket(v.User, buffer)
+	u, payload, err := DecodeUDPPacket(v.User, buffer)
 	if err != nil {
 		buffer.Release()
 		return nil, err
 	}
+	dest := u.Destination()
+	payload.UDP = &dest
 	return buf.MultiBuffer{payload}, nil
 }
 
@@ -245,13 +245,33 @@ type UDPWriter struct {
 	Request *protocol.RequestHeader
 }
 
-// Write implements io.Writer.
-func (w *UDPWriter) Write(payload []byte) (int, error) {
-	packet, err := EncodeUDPPacket(w.Request, payload)
-	if err != nil {
-		return 0, err
+func (w *UDPWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
+	for {
+		mb2, b := buf.SplitFirst(mb)
+		mb = mb2
+		if b == nil {
+			break
+		}
+		request := w.Request
+		if b.UDP != nil {
+			request = &protocol.RequestHeader{
+				User:    w.Request.User,
+				Address: b.UDP.Address,
+				Port:    b.UDP.Port,
+			}
+		}
+		packet, err := EncodeUDPPacket(request, b.Bytes())
+		b.Release()
+		if err != nil {
+			buf.ReleaseMulti(mb)
+			return err
+		}
+		_, err = w.Writer.Write(packet.Bytes())
+		packet.Release()
+		if err != nil {
+			buf.ReleaseMulti(mb)
+			return err
+		}
 	}
-	_, err = w.Writer.Write(packet.Bytes())
-	packet.Release()
-	return len(payload), err
+	return nil
 }

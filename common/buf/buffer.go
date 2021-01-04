@@ -3,7 +3,8 @@ package buf
 import (
 	"io"
 
-	"github.com/xtls/xray-core/v1/common/bytespool"
+	"github.com/xtls/xray-core/common/bytespool"
+	"github.com/xtls/xray-core/common/net"
 )
 
 const (
@@ -13,6 +14,8 @@ const (
 
 var pool = bytespool.GetPool(Size)
 
+var Cone = true
+
 // Buffer is a recyclable allocation of a byte array. Buffer.Release() recycles
 // the buffer into an internal buffer pool, in order to recreate a buffer more
 // quickly.
@@ -20,6 +23,7 @@ type Buffer struct {
 	v     []byte
 	start int32
 	end   int32
+	UDP   *net.Destination
 }
 
 // New creates a Buffer with 0 length and 2K capacity.
@@ -47,6 +51,7 @@ func (b *Buffer) Release() {
 	b.v = nil
 	b.Clear()
 	pool.Put(p)
+	b.UDP = nil
 }
 
 // Clear clears the content of the buffer, results an empty buffer with

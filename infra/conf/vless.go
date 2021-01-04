@@ -8,12 +8,12 @@ import (
 
 	"github.com/golang/protobuf/proto"
 
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/protocol"
-	"github.com/xtls/xray-core/v1/common/serial"
-	"github.com/xtls/xray-core/v1/proxy/vless"
-	"github.com/xtls/xray-core/v1/proxy/vless/inbound"
-	"github.com/xtls/xray-core/v1/proxy/vless/outbound"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/serial"
+	"github.com/xtls/xray-core/proxy/vless"
+	"github.com/xtls/xray-core/proxy/vless/inbound"
+	"github.com/xtls/xray-core/proxy/vless/outbound"
 )
 
 type VLessInboundFallback struct {
@@ -47,6 +47,8 @@ func (c *VLessInboundConfig) Build() (proto.Message, error) {
 
 		switch account.Flow {
 		case "", "xtls-rprx-origin", "xtls-rprx-direct":
+		case "xtls-rprx-splice":
+			return nil, newError(`VLESS clients: inbound doesn't support "xtls-rprx-splice" in this version, please use "xtls-rprx-direct" instead`)
 		default:
 			return nil, newError(`VLESS clients: "flow" doesn't support "` + account.Flow + `" in this version`)
 		}
@@ -99,7 +101,7 @@ func (c *VLessInboundConfig) Build() (proto.Message, error) {
 				switch fb.Dest[0] {
 				case '@', '/':
 					fb.Type = "unix"
-					if fb.Dest[0] == '@' && len(fb.Dest) > 1 && fb.Dest[1] == '@' && runtime.GOOS == "linux" {
+					if fb.Dest[0] == '@' && len(fb.Dest) > 1 && fb.Dest[1] == '@' && (runtime.GOOS == "linux" || runtime.GOOS == "android") {
 						fullAddr := make([]byte, len(syscall.RawSockaddrUnix{}.Path)) // may need padding to work with haproxy
 						copy(fullAddr, fb.Dest[1:])
 						fb.Dest = string(fullAddr)
@@ -167,6 +169,10 @@ func (c *VLessOutboundConfig) Build() (proto.Message, error) {
 
 			switch account.Flow {
 			case "", "xtls-rprx-origin", "xtls-rprx-origin-udp443", "xtls-rprx-direct", "xtls-rprx-direct-udp443":
+			case "xtls-rprx-splice", "xtls-rprx-splice-udp443":
+				if runtime.GOOS != "linux" && runtime.GOOS != "android" {
+					return nil, newError(`VLESS users: "` + account.Flow + `" only support linux in this version`)
+				}
 			default:
 				return nil, newError(`VLESS users: "flow" doesn't support "` + account.Flow + `" in this version`)
 			}

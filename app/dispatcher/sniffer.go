@@ -1,12 +1,10 @@
-// +build !confonly
-
 package dispatcher
 
 import (
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/protocol/bittorrent"
-	"github.com/xtls/xray-core/v1/common/protocol/http"
-	"github.com/xtls/xray-core/v1/common/protocol/tls"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/protocol/bittorrent"
+	"github.com/xtls/xray-core/common/protocol/http"
+	"github.com/xtls/xray-core/common/protocol/tls"
 )
 
 type SniffResult interface {

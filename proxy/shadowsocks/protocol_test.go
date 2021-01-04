@@ -5,11 +5,11 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/buf"
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/protocol"
-	. "github.com/xtls/xray-core/v1/proxy/shadowsocks"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol"
+	. "github.com/xtls/xray-core/proxy/shadowsocks"
 )
 
 func toAccount(a *Account) protocol.Account {
@@ -145,7 +145,7 @@ func TestUDPReaderWriter(t *testing.T) {
 	cache := buf.New()
 	defer cache.Release()
 
-	writer := &buf.SequentialWriter{Writer: &UDPWriter{
+	writer := &UDPWriter{
 		Writer: cache,
 		Request: &protocol.RequestHeader{
 			Version: Version,
@@ -153,7 +153,7 @@ func TestUDPReaderWriter(t *testing.T) {
 			Port:    123,
 			User:    user,
 		},
-	}}
+	}
 
 	reader := &UDPReader{
 		Reader: cache,
