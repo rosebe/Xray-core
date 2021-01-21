@@ -1,8 +1,6 @@
-// +build !confonly
-
 package dispatcher
 
-//go:generate go run github.com/xtls/xray-core/v1/common/errors/errorgen
+//go:generate go run github.com/xtls/xray-core/common/errors/errorgen
 
 import (
 	"context"
@@ -10,20 +8,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/buf"
-	"github.com/xtls/xray-core/v1/common/log"
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/protocol"
-	"github.com/xtls/xray-core/v1/common/session"
-	"github.com/xtls/xray-core/v1/core"
-	"github.com/xtls/xray-core/v1/features/outbound"
-	"github.com/xtls/xray-core/v1/features/policy"
-	"github.com/xtls/xray-core/v1/features/routing"
-	routing_session "github.com/xtls/xray-core/v1/features/routing/session"
-	"github.com/xtls/xray-core/v1/features/stats"
-	"github.com/xtls/xray-core/v1/transport"
-	"github.com/xtls/xray-core/v1/transport/pipe"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/log"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/outbound"
+	"github.com/xtls/xray-core/features/policy"
+	"github.com/xtls/xray-core/features/routing"
+	routing_session "github.com/xtls/xray-core/features/routing/session"
+	"github.com/xtls/xray-core/features/stats"
+	"github.com/xtls/xray-core/transport"
+	"github.com/xtls/xray-core/transport/pipe"
 )
 
 var (
@@ -265,14 +263,18 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 		skipRoutePick = content.SkipRoutePick
 	}
 
+	routingLink := routing_session.AsRoutingContext(ctx)
+	inTag := routingLink.GetInboundTag()
+	isPickRoute := false
 	if d.router != nil && !skipRoutePick {
-		if route, err := d.router.PickRoute(routing_session.AsRoutingContext(ctx)); err == nil {
-			tag := route.GetOutboundTag()
-			if h := d.ohm.GetHandler(tag); h != nil {
-				newError("taking detour [", tag, "] for [", destination, "]").WriteToLog(session.ExportIDToError(ctx))
+		if route, err := d.router.PickRoute(routingLink); err == nil {
+			outTag := route.GetOutboundTag()
+			isPickRoute = true
+			if h := d.ohm.GetHandler(outTag); h != nil {
+				newError("taking detour [", outTag, "] for [", destination, "]").WriteToLog(session.ExportIDToError(ctx))
 				handler = h
 			} else {
-				newError("non existing tag: ", tag).AtWarning().WriteToLog(session.ExportIDToError(ctx))
+				newError("non existing outTag: ", outTag).AtWarning().WriteToLog(session.ExportIDToError(ctx))
 			}
 		} else {
 			newError("default route for ", destination).WriteToLog(session.ExportIDToError(ctx))
@@ -292,7 +294,19 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 
 	if accessMessage := log.AccessMessageFromContext(ctx); accessMessage != nil {
 		if tag := handler.Tag(); tag != "" {
-			accessMessage.Detour = tag
+			if isPickRoute {
+				if inTag != "" {
+					accessMessage.Detour = inTag + " -> " + tag
+				} else {
+					accessMessage.Detour = tag
+				}
+			} else {
+				if inTag != "" {
+					accessMessage.Detour = inTag + " >> " + tag
+				} else {
+					accessMessage.Detour = tag
+				}
+			}
 		}
 		log.Record(accessMessage)
 	}

@@ -1,22 +1,25 @@
-// +build !confonly
-
 package core
 
 import (
 	"context"
 	"reflect"
+	"runtime/debug"
+	"strings"
 	"sync"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/serial"
-	"github.com/xtls/xray-core/v1/features"
-	"github.com/xtls/xray-core/v1/features/dns"
-	"github.com/xtls/xray-core/v1/features/dns/localdns"
-	"github.com/xtls/xray-core/v1/features/inbound"
-	"github.com/xtls/xray-core/v1/features/outbound"
-	"github.com/xtls/xray-core/v1/features/policy"
-	"github.com/xtls/xray-core/v1/features/routing"
-	"github.com/xtls/xray-core/v1/features/stats"
+	"github.com/golang/protobuf/proto"
+
+	"github.com/xtls/xray-core/app/proxyman"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/serial"
+	"github.com/xtls/xray-core/features"
+	"github.com/xtls/xray-core/features/dns"
+	"github.com/xtls/xray-core/features/dns/localdns"
+	"github.com/xtls/xray-core/features/inbound"
+	"github.com/xtls/xray-core/features/outbound"
+	"github.com/xtls/xray-core/features/policy"
+	"github.com/xtls/xray-core/features/routing"
+	"github.com/xtls/xray-core/features/stats"
 )
 
 // Server is an instance of Xray. At any time, there must be at most one Server instance running.
@@ -181,6 +184,31 @@ func NewWithContext(ctx context.Context, config *Config) (*Instance, error) {
 }
 
 func initInstanceWithConfig(config *Config, server *Instance) (bool, error) {
+	cone := true
+	v, t := false, false
+	for _, outbound := range config.Outbound {
+		s := strings.ToLower(outbound.ProxySettings.Type)
+		l := len(s)
+		if l >= 16 && s[11:16] == "vless" || l >= 16 && s[11:16] == "vmess" {
+			v = true
+			continue
+		}
+		if l >= 17 && s[11:17] == "trojan" || l >= 22 && s[11:22] == "shadowsocks" {
+			t = true
+			var m proxyman.SenderConfig
+			proto.Unmarshal(outbound.SenderSettings.Value, &m)
+			if m.MultiplexSettings != nil && m.MultiplexSettings.Enabled {
+				cone = false
+				break
+			}
+		}
+	}
+	if v && !t {
+		cone = false
+	}
+	server.ctx = context.WithValue(server.ctx, "cone", cone)
+	defer debug.FreeOSMemory()
+
 	if config.Transport != nil {
 		features.PrintDeprecatedFeatureWarning("global transport settings")
 	}

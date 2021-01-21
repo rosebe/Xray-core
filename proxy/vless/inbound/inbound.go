@@ -1,38 +1,37 @@
-// +build !confonly
-
 package inbound
 
-//go:generate go run github.com/xtls/xray-core/v1/common/errors/errorgen
+//go:generate go run github.com/xtls/xray-core/common/errors/errorgen
 
 import (
 	"context"
 	"io"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/buf"
-	"github.com/xtls/xray-core/v1/common/errors"
-	"github.com/xtls/xray-core/v1/common/log"
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/platform"
-	"github.com/xtls/xray-core/v1/common/protocol"
-	"github.com/xtls/xray-core/v1/common/retry"
-	"github.com/xtls/xray-core/v1/common/session"
-	"github.com/xtls/xray-core/v1/common/signal"
-	"github.com/xtls/xray-core/v1/common/task"
-	core "github.com/xtls/xray-core/v1/core"
-	"github.com/xtls/xray-core/v1/features/dns"
-	feature_inbound "github.com/xtls/xray-core/v1/features/inbound"
-	"github.com/xtls/xray-core/v1/features/policy"
-	"github.com/xtls/xray-core/v1/features/routing"
-	"github.com/xtls/xray-core/v1/features/stats"
-	"github.com/xtls/xray-core/v1/proxy/vless"
-	"github.com/xtls/xray-core/v1/proxy/vless/encoding"
-	"github.com/xtls/xray-core/v1/transport/internet"
-	"github.com/xtls/xray-core/v1/transport/internet/tls"
-	"github.com/xtls/xray-core/v1/transport/internet/xtls"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
+	"github.com/xtls/xray-core/common/errors"
+	"github.com/xtls/xray-core/common/log"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/platform"
+	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/retry"
+	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/common/signal"
+	"github.com/xtls/xray-core/common/task"
+	core "github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/dns"
+	feature_inbound "github.com/xtls/xray-core/features/inbound"
+	"github.com/xtls/xray-core/features/policy"
+	"github.com/xtls/xray-core/features/routing"
+	"github.com/xtls/xray-core/features/stats"
+	"github.com/xtls/xray-core/proxy/vless"
+	"github.com/xtls/xray-core/proxy/vless/encoding"
+	"github.com/xtls/xray-core/transport/internet"
+	"github.com/xtls/xray-core/transport/internet/tls"
+	"github.com/xtls/xray-core/transport/internet/xtls"
 )
 
 var (
@@ -65,7 +64,7 @@ type Handler struct {
 	policyManager         policy.Manager
 	validator             *vless.Validator
 	dns                   dns.Client
-	fallbacks             map[string]map[string]*Fallback // or nil
+	fallbacks             map[string]map[string]map[string]*Fallback // or nil
 	// regexps               map[string]*regexp.Regexp       // or nil
 }
 
@@ -90,13 +89,16 @@ func New(ctx context.Context, config *Config, dc dns.Client) (*Handler, error) {
 	}
 
 	if config.Fallbacks != nil {
-		handler.fallbacks = make(map[string]map[string]*Fallback)
+		handler.fallbacks = make(map[string]map[string]map[string]*Fallback)
 		// handler.regexps = make(map[string]*regexp.Regexp)
 		for _, fb := range config.Fallbacks {
-			if handler.fallbacks[fb.Alpn] == nil {
-				handler.fallbacks[fb.Alpn] = make(map[string]*Fallback)
+			if handler.fallbacks[fb.Name] == nil {
+				handler.fallbacks[fb.Name] = make(map[string]map[string]*Fallback)
 			}
-			handler.fallbacks[fb.Alpn][fb.Path] = fb
+			if handler.fallbacks[fb.Name][fb.Alpn] == nil {
+				handler.fallbacks[fb.Name][fb.Alpn] = make(map[string]*Fallback)
+			}
+			handler.fallbacks[fb.Name][fb.Alpn][fb.Path] = fb
 			/*
 				if fb.Path != "" {
 					if r, err := regexp.Compile(fb.Path); err != nil {
@@ -108,11 +110,37 @@ func New(ctx context.Context, config *Config, dc dns.Client) (*Handler, error) {
 			*/
 		}
 		if handler.fallbacks[""] != nil {
-			for alpn, pfb := range handler.fallbacks {
-				if alpn != "" { // && alpn != "h2" {
-					for path, fb := range handler.fallbacks[""] {
-						if pfb[path] == nil {
-							pfb[path] = fb
+			for name, apfb := range handler.fallbacks {
+				if name != "" {
+					for alpn := range handler.fallbacks[""] {
+						if apfb[alpn] == nil {
+							apfb[alpn] = make(map[string]*Fallback)
+						}
+					}
+				}
+			}
+		}
+		for _, apfb := range handler.fallbacks {
+			if apfb[""] != nil {
+				for alpn, pfb := range apfb {
+					if alpn != "" { // && alpn != "h2" {
+						for path, fb := range apfb[""] {
+							if pfb[path] == nil {
+								pfb[path] = fb
+							}
+						}
+					}
+				}
+			}
+		}
+		if handler.fallbacks[""] != nil {
+			for name, apfb := range handler.fallbacks {
+				if name != "" {
+					for alpn, pfb := range handler.fallbacks[""] {
+						for path, fb := range pfb {
+							if apfb[alpn][path] == nil {
+								apfb[alpn][path] = fb
+							}
 						}
 					}
 				}
@@ -173,8 +201,8 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 	var requestAddons *encoding.Addons
 	var err error
 
-	apfb := h.fallbacks
-	isfb := apfb != nil
+	napfb := h.fallbacks
+	isfb := napfb != nil
 
 	if isfb && firstLen < 18 {
 		err = newError("fallback directly")
@@ -189,18 +217,44 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 			}
 			newError("fallback starts").Base(err).AtInfo().WriteToLog(sid)
 
+			name := ""
 			alpn := ""
-			if len(apfb) > 1 || apfb[""] == nil {
-				if tlsConn, ok := iConn.(*tls.Conn); ok {
-					alpn = tlsConn.ConnectionState().NegotiatedProtocol
-					newError("realAlpn = " + alpn).AtInfo().WriteToLog(sid)
-				} else if xtlsConn, ok := iConn.(*xtls.Conn); ok {
-					alpn = xtlsConn.ConnectionState().NegotiatedProtocol
-					newError("realAlpn = " + alpn).AtInfo().WriteToLog(sid)
+			if tlsConn, ok := iConn.(*tls.Conn); ok {
+				cs := tlsConn.ConnectionState()
+				name = cs.ServerName
+				alpn = cs.NegotiatedProtocol
+				newError("realName = " + name).AtInfo().WriteToLog(sid)
+				newError("realAlpn = " + alpn).AtInfo().WriteToLog(sid)
+			} else if xtlsConn, ok := iConn.(*xtls.Conn); ok {
+				cs := xtlsConn.ConnectionState()
+				name = cs.ServerName
+				alpn = cs.NegotiatedProtocol
+				newError("realName = " + name).AtInfo().WriteToLog(sid)
+				newError("realAlpn = " + alpn).AtInfo().WriteToLog(sid)
+			}
+
+			if len(napfb) > 1 || napfb[""] == nil {
+				if name != "" && napfb[name] == nil {
+					match := ""
+					for n := range napfb {
+						if n != "" && strings.Contains(name, n) && len(n) > len(match) {
+							match = n
+						}
+					}
+					name = match
 				}
-				if apfb[alpn] == nil {
-					alpn = ""
-				}
+			}
+
+			if napfb[name] == nil {
+				name = ""
+			}
+			apfb := napfb[name]
+			if apfb == nil {
+				return newError(`failed to find the default "name" config`).AtWarning()
+			}
+
+			if apfb[alpn] == nil {
+				alpn = ""
 			}
 			pfb := apfb[alpn]
 			if pfb == nil {
@@ -445,7 +499,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 			if statConn != nil {
 				counter = statConn.ReadCounter
 			}
-			err = encoding.ReadV(clientReader, serverWriter, timer, iConn.(*xtls.Conn), rawConn, counter)
+			err = encoding.ReadV(clientReader, serverWriter, timer, iConn.(*xtls.Conn), rawConn, counter, nil)
 		} else {
 			// from clientReader.ReadMultiBuffer to serverWriter.WriteMultiBufer
 			err = buf.Copy(clientReader, serverWriter, buf.UpdateActivity(timer))

@@ -6,11 +6,12 @@ import (
 
 	"github.com/golang/protobuf/proto"
 
-	"github.com/xtls/xray-core/v1/common/protocol"
-	"github.com/xtls/xray-core/v1/common/serial"
-	"github.com/xtls/xray-core/v1/proxy/vmess"
-	"github.com/xtls/xray-core/v1/proxy/vmess/inbound"
-	"github.com/xtls/xray-core/v1/proxy/vmess/outbound"
+	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/serial"
+	"github.com/xtls/xray-core/common/uuid"
+	"github.com/xtls/xray-core/proxy/vmess"
+	"github.com/xtls/xray-core/proxy/vmess/inbound"
+	"github.com/xtls/xray-core/proxy/vmess/outbound"
 )
 
 type VMessAccount struct {
@@ -105,6 +106,13 @@ func (c *VMessInboundConfig) Build() (proto.Message, error) {
 		if err := json.Unmarshal(rawData, account); err != nil {
 			return nil, newError("invalid VMess user").Base(err)
 		}
+
+		u, err := uuid.ParseString(account.ID)
+		if err != nil {
+			return nil, err
+		}
+		account.ID = u.String()
+
 		user.Account = serial.ToTypedMessage(account.Build())
 		config.User[idx] = user
 	}
@@ -149,6 +157,13 @@ func (c *VMessOutboundConfig) Build() (proto.Message, error) {
 			if err := json.Unmarshal(rawUser, account); err != nil {
 				return nil, newError("invalid VMess user").Base(err)
 			}
+
+			u, err := uuid.ParseString(account.ID)
+			if err != nil {
+				return nil, err
+			}
+			account.ID = u.String()
+
 			user.Account = serial.ToTypedMessage(account.Build())
 			spec.User = append(spec.User, user)
 		}
