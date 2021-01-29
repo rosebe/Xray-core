@@ -5,18 +5,18 @@ import (
 	"strings"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/xtls/xray-core/v1/common/platform/filesystem"
-	"github.com/xtls/xray-core/v1/common/protocol"
-	"github.com/xtls/xray-core/v1/common/serial"
-	"github.com/xtls/xray-core/v1/transport/internet"
-	"github.com/xtls/xray-core/v1/transport/internet/domainsocket"
-	"github.com/xtls/xray-core/v1/transport/internet/http"
-	"github.com/xtls/xray-core/v1/transport/internet/kcp"
-	"github.com/xtls/xray-core/v1/transport/internet/quic"
-	"github.com/xtls/xray-core/v1/transport/internet/tcp"
-	"github.com/xtls/xray-core/v1/transport/internet/tls"
-	"github.com/xtls/xray-core/v1/transport/internet/websocket"
-	"github.com/xtls/xray-core/v1/transport/internet/xtls"
+	"github.com/xtls/xray-core/common/platform/filesystem"
+	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/serial"
+	"github.com/xtls/xray-core/transport/internet"
+	"github.com/xtls/xray-core/transport/internet/domainsocket"
+	"github.com/xtls/xray-core/transport/internet/http"
+	"github.com/xtls/xray-core/transport/internet/kcp"
+	"github.com/xtls/xray-core/transport/internet/quic"
+	"github.com/xtls/xray-core/transport/internet/tcp"
+	"github.com/xtls/xray-core/transport/internet/tls"
+	"github.com/xtls/xray-core/transport/internet/websocket"
+	"github.com/xtls/xray-core/transport/internet/xtls"
 )
 
 var (
@@ -247,11 +247,12 @@ func readFileOrString(f string, s []string) ([]byte, error) {
 }
 
 type TLSCertConfig struct {
-	CertFile string   `json:"certificateFile"`
-	CertStr  []string `json:"certificate"`
-	KeyFile  string   `json:"keyFile"`
-	KeyStr   []string `json:"key"`
-	Usage    string   `json:"usage"`
+	CertFile     string   `json:"certificateFile"`
+	CertStr      []string `json:"certificate"`
+	KeyFile      string   `json:"keyFile"`
+	KeyStr       []string `json:"key"`
+	Usage        string   `json:"usage"`
+	OcspStapling int64    `json:"ocspStapling"`
 }
 
 // Build implements Buildable.
@@ -283,17 +284,22 @@ func (c *TLSCertConfig) Build() (*tls.Certificate, error) {
 		certificate.Usage = tls.Certificate_ENCIPHERMENT
 	}
 
+	certificate.OcspStapling = c.OcspStapling
+
 	return certificate, nil
 }
 
 type TLSConfig struct {
 	Insecure                 bool             `json:"allowInsecure"`
-	InsecureCiphers          bool             `json:"allowInsecureCiphers"`
 	Certs                    []*TLSCertConfig `json:"certificates"`
 	ServerName               string           `json:"serverName"`
 	ALPN                     *StringList      `json:"alpn"`
-	DisableSessionResumption bool             `json:"disableSessionResumption"`
+	EnableSessionResumption  bool             `json:"enableSessionResumption"`
 	DisableSystemRoot        bool             `json:"disableSystemRoot"`
+	MinVersion               string           `json:"minVersion"`
+	MaxVersion               string           `json:"maxVersion"`
+	CipherSuites             string           `json:"cipherSuites"`
+	PreferServerCipherSuites bool             `json:"preferServerCipherSuites"`
 }
 
 // Build implements Buildable.
@@ -309,24 +315,28 @@ func (c *TLSConfig) Build() (proto.Message, error) {
 	}
 	serverName := c.ServerName
 	config.AllowInsecure = c.Insecure
-	config.AllowInsecureCiphers = c.InsecureCiphers
 	if len(c.ServerName) > 0 {
 		config.ServerName = serverName
 	}
 	if c.ALPN != nil && len(*c.ALPN) > 0 {
 		config.NextProtocol = []string(*c.ALPN)
 	}
-	config.DisableSessionResumption = c.DisableSessionResumption
+	config.EnableSessionResumption = c.EnableSessionResumption
 	config.DisableSystemRoot = c.DisableSystemRoot
+	config.MinVersion = c.MinVersion
+	config.MaxVersion = c.MaxVersion
+	config.CipherSuites = c.CipherSuites
+	config.PreferServerCipherSuites = c.PreferServerCipherSuites
 	return config, nil
 }
 
 type XTLSCertConfig struct {
-	CertFile string   `json:"certificateFile"`
-	CertStr  []string `json:"certificate"`
-	KeyFile  string   `json:"keyFile"`
-	KeyStr   []string `json:"key"`
-	Usage    string   `json:"usage"`
+	CertFile     string   `json:"certificateFile"`
+	CertStr      []string `json:"certificate"`
+	KeyFile      string   `json:"keyFile"`
+	KeyStr       []string `json:"key"`
+	Usage        string   `json:"usage"`
+	OcspStapling int64    `json:"ocspStapling"`
 }
 
 // Build implements Buildable.
@@ -358,17 +368,22 @@ func (c *XTLSCertConfig) Build() (*xtls.Certificate, error) {
 		certificate.Usage = xtls.Certificate_ENCIPHERMENT
 	}
 
+	certificate.OcspStapling = c.OcspStapling
+
 	return certificate, nil
 }
 
 type XTLSConfig struct {
 	Insecure                 bool              `json:"allowInsecure"`
-	InsecureCiphers          bool              `json:"allowInsecureCiphers"`
 	Certs                    []*XTLSCertConfig `json:"certificates"`
 	ServerName               string            `json:"serverName"`
 	ALPN                     *StringList       `json:"alpn"`
-	DisableSessionResumption bool              `json:"disableSessionResumption"`
+	EnableSessionResumption  bool              `json:"enableSessionResumption"`
 	DisableSystemRoot        bool              `json:"disableSystemRoot"`
+	MinVersion               string            `json:"minVersion"`
+	MaxVersion               string            `json:"maxVersion"`
+	CipherSuites             string            `json:"cipherSuites"`
+	PreferServerCipherSuites bool              `json:"preferServerCipherSuites"`
 }
 
 // Build implements Buildable.
@@ -384,15 +399,18 @@ func (c *XTLSConfig) Build() (proto.Message, error) {
 	}
 	serverName := c.ServerName
 	config.AllowInsecure = c.Insecure
-	config.AllowInsecureCiphers = c.InsecureCiphers
 	if len(c.ServerName) > 0 {
 		config.ServerName = serverName
 	}
 	if c.ALPN != nil && len(*c.ALPN) > 0 {
 		config.NextProtocol = []string(*c.ALPN)
 	}
-	config.DisableSessionResumption = c.DisableSessionResumption
+	config.EnableSessionResumption = c.EnableSessionResumption
 	config.DisableSystemRoot = c.DisableSystemRoot
+	config.MinVersion = c.MinVersion
+	config.MaxVersion = c.MaxVersion
+	config.CipherSuites = c.CipherSuites
+	config.PreferServerCipherSuites = c.PreferServerCipherSuites
 	return config, nil
 }
 
