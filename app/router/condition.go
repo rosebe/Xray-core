@@ -1,5 +1,3 @@
-// +build !confonly
-
 package router
 
 import (
@@ -8,9 +6,9 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
-	"github.com/xtls/xray-core/v1/common/net"
-	"github.com/xtls/xray-core/v1/common/strmatcher"
-	"github.com/xtls/xray-core/v1/features/routing"
+	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/strmatcher"
+	"github.com/xtls/xray-core/features/routing"
 )
 
 type Condition interface {
@@ -93,7 +91,7 @@ func (m *DomainMatcher) Apply(ctx routing.Context) bool {
 	if len(domain) == 0 {
 		return false
 	}
-	return m.ApplyDomain(domain)
+	return m.ApplyDomain(strings.ToLower(domain))
 }
 
 type MultiGeoIPMatcher struct {
