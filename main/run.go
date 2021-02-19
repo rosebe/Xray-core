@@ -8,14 +8,16 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
-	"strings"
+	"runtime/debug"
 	"syscall"
 
-	"github.com/xtls/xray-core/v1/common/cmdarg"
-	"github.com/xtls/xray-core/v1/common/platform"
-	"github.com/xtls/xray-core/v1/core"
-	"github.com/xtls/xray-core/v1/main/commands/base"
+	"github.com/xtls/xray-core/common/cmdarg"
+	"github.com/xtls/xray-core/common/platform"
+	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/infra/conf"
+	"github.com/xtls/xray-core/main/commands/base"
 )
 
 var cmdRun = &base.Command{
@@ -64,22 +66,29 @@ func executeRun(cmd *base.Command, args []string) {
 	printVersion()
 	server, err := startXray()
 	if err != nil {
-		base.Fatalf("Filed to start: %s", err)
+		fmt.Println("Failed to start:", err)
+		// Configuration error. Exit with a special value to prevent systemd from restarting.
+		os.Exit(23)
 	}
 
 	if *test {
 		fmt.Println("Configuration OK.")
-		base.SetExitStatus(0)
-		base.Exit()
+		os.Exit(0)
 	}
 
 	if err := server.Start(); err != nil {
-		base.Fatalf("Filed to start: %s", err)
+		fmt.Println("Failed to start:", err)
+		os.Exit(-1)
 	}
 	defer server.Close()
 
+	conf.FileCache = nil
+	conf.IPCache = nil
+	conf.SiteCache = nil
+
 	// Explicitly triggering GC to remove garbage from config loading.
 	runtime.GC()
+	debug.FreeOSMemory()
 
 	{
 		osSignals := make(chan os.Signal, 1)
@@ -107,7 +116,11 @@ func readConfDir(dirPath string) {
 		log.Fatalln(err)
 	}
 	for _, f := range confs {
-		if strings.HasSuffix(f.Name(), ".json") {
+		matched, err := regexp.MatchString(`^.+\.(json|toml|yaml|yml)$`, f.Name())
+		if err != nil {
+			log.Fatalln(err)
+		}
+		if matched {
 			configFiles.Set(path.Join(dirPath, f.Name()))
 		}
 	}
@@ -144,23 +157,25 @@ func getConfigFilePath() cmdarg.Arg {
 }
 
 func getConfigFormat() string {
-	switch strings.ToLower(*format) {
-	case "pb", "protobuf":
-		return "protobuf"
-	default:
-		return "json"
+	f := core.GetFormatByExtension(*format)
+	if f == "" {
+		f = "json"
 	}
+	return f
 }
 
 func startXray() (core.Server, error) {
 	configFiles := getConfigFilePath()
 
-	config, err := core.LoadConfig(getConfigFormat(), configFiles[0], configFiles)
+	//config, err := core.LoadConfig(getConfigFormat(), configFiles[0], configFiles)
+
+	c, err := core.LoadConfig(getConfigFormat(), configFiles)
+
 	if err != nil {
-		return nil, newError("failed to read config files: [", configFiles.String(), "]").Base(err)
+		return nil, newError("failed to load config files: [", configFiles.String(), "]").Base(err)
 	}
 
-	server, err := core.New(config)
+	server, err := core.New(c)
 	if err != nil {
 		return nil, newError("failed to create server").Base(err)
 	}
