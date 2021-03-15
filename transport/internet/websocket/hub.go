@@ -1,22 +1,23 @@
-// +build !confonly
-
 package websocket
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
+	"io"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 
-	"github.com/xtls/xray-core/v1/common"
-	"github.com/xtls/xray-core/v1/common/net"
-	http_proto "github.com/xtls/xray-core/v1/common/protocol/http"
-	"github.com/xtls/xray-core/v1/common/session"
-	"github.com/xtls/xray-core/v1/transport/internet"
-	v2tls "github.com/xtls/xray-core/v1/transport/internet/tls"
+	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/net"
+	http_proto "github.com/xtls/xray-core/common/protocol/http"
+	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/transport/internet"
+	v2tls "github.com/xtls/xray-core/transport/internet/tls"
 )
 
 type requestHandler struct {
@@ -53,7 +54,13 @@ func (h *requestHandler) ServeHTTP(writer http.ResponseWriter, request *http.Req
 		}
 	}
 
-	h.ln.addConn(newConnection(conn, remoteAddr))
+	var extraReader io.Reader
+	if str := request.Header.Get("Sec-WebSocket-Protocol"); str != "" {
+		if ed, err := base64.StdEncoding.DecodeString(str); err == nil && len(ed) > 0 {
+			extraReader = bytes.NewReader(ed)
+		}
+	}
+	h.ln.addConn(newConnection(conn, remoteAddr, extraReader))
 }
 
 type Listener struct {
