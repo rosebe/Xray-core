@@ -142,6 +142,7 @@ type WebSocketConfig struct {
 	Path2               string            `json:"Path"` // The key was misspelled. For backward compatibility, we have to keep track the old key.
 	Headers             map[string]string `json:"headers"`
 	AcceptProxyProtocol bool              `json:"acceptProxyProtocol"`
+	UsePathEarlyData    bool              `json:"usePathEarlyData"`
 }
 
 // Build implements Buildable.
@@ -168,9 +169,10 @@ func (c *WebSocketConfig) Build() (proto.Message, error) {
 		}
 	}
 	config := &websocket.Config{
-		Path:   path,
-		Header: header,
-		Ed:     ed,
+		Path:             path,
+		Header:           header,
+		Ed:               ed,
+		UsePathEarlyData: c.UsePathEarlyData,
 	}
 	if c.AcceptProxyProtocol {
 		config.AcceptProxyProtocol = c.AcceptProxyProtocol
@@ -321,6 +323,7 @@ type TLSConfig struct {
 	MaxVersion               string           `json:"maxVersion"`
 	CipherSuites             string           `json:"cipherSuites"`
 	PreferServerCipherSuites bool             `json:"preferServerCipherSuites"`
+	Fingerprint              string           `json:"fingerprint"`
 }
 
 // Build implements Buildable.
@@ -348,6 +351,7 @@ func (c *TLSConfig) Build() (proto.Message, error) {
 	config.MaxVersion = c.MaxVersion
 	config.CipherSuites = c.CipherSuites
 	config.PreferServerCipherSuites = c.PreferServerCipherSuites
+	config.Fingerprint = strings.ToLower(c.Fingerprint)
 	return config, nil
 }
 
@@ -476,22 +480,19 @@ type SocketConfig struct {
 
 // Build implements Buildable.
 func (c *SocketConfig) Build() (*internet.SocketConfig, error) {
-	tfo := int32(-1)
+	tfo := int32(0) // don't invoke setsockopt() for TFO
 	if c.TFO != nil {
 		switch v := c.TFO.(type) {
 		case bool:
 			if v {
 				tfo = 256
 			} else {
-				tfo = 0
+				tfo = -1 // TFO need to be disabled
 			}
 		case float64:
-			if v < 0 {
-				return nil, newError("tcpFastOpen: only boolean and non-negative integer value is acceptable")
-			}
 			tfo = int32(math.Min(v, math.MaxInt32))
 		default:
-			return nil, newError("tcpFastOpen: only boolean and non-negative integer value is acceptable")
+			return nil, newError("tcpFastOpen: only boolean and integer value is acceptable")
 		}
 	}
 	var tproxy internet.SocketConfig_TProxyMode

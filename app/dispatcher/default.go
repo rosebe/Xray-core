@@ -179,7 +179,7 @@ func (d *DefaultDispatcher) getLink(ctx context.Context) (*transport.Link, *tran
 func shouldOverride(ctx context.Context, result SniffResult, request session.SniffingRequest, destination net.Destination) bool {
 	domain := result.Domain()
 	for _, d := range request.ExcludeForDomain {
-		if domain == d {
+		if strings.ToLower(domain) == d {
 			return false
 		}
 	}
@@ -196,7 +196,7 @@ func shouldOverride(ctx context.Context, result SniffResult, request session.Sni
 			return true
 		}
 		if fakeDNSEngine != nil && protocolString != "bittorrent" && p == "fakedns" &&
-			fakeDNSEngine.GetFakeIPRange().Contains(destination.Address.IP()) {
+			destination.Address.Family().IsIP() && fakeDNSEngine.GetFakeIPRange().Contains(destination.Address.IP()) {
 			newError("Using sniffer ", protocolString, " since the fake DNS missed").WriteToLog(session.ExportIDToError(ctx))
 			return true
 		}

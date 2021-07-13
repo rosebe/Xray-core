@@ -23,8 +23,9 @@
   - [Xray4Magisk](https://github.com/CerteKim/Xray4Magisk)
   - [Xray_For_Magisk](https://github.com/E7KMbb/Xray_For_Magisk)
 - Homebrew
-  - [Repository 0](https://github.com/N4FA/homebrew-xray)
-  - [Repository 1](https://github.com/xiruizhao/homebrew-xray)
+  - `brew install xray`
+  - [(Tap) Repository 0](https://github.com/N4FA/homebrew-xray)
+  - [(Tap) Repository 1](https://github.com/xiruizhao/homebrew-xray)
 
 ## Usage
 
@@ -39,7 +40,6 @@
   - [luci-app-xray](https://github.com/yichya/luci-app-xray) ([openwrt-xray](https://github.com/yichya/openwrt-xray))
 - Windows
   - [v2rayN](https://github.com/2dust/v2rayN)
-  - [Qv2ray](https://github.com/Qv2ray/Qv2ray)
   - [Netch (NetFilter & TUN/TAP)](https://github.com/NetchX/Netch)
 - Android
   - [v2rayNG](https://github.com/2dust/v2rayNG)

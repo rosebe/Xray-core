@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,9 +22,12 @@ import (
 )
 
 type requestHandler struct {
-	path string
-	ln   *Listener
+	path             string
+	ln               *Listener
+	UsePathEarlyData bool
 }
+
+var replacer = strings.NewReplacer("+", "-", "/", "_", "=", "")
 
 var upgrader = &websocket.Upgrader{
 	ReadBufferSize:   4 * 1024,
@@ -35,11 +39,33 @@ var upgrader = &websocket.Upgrader{
 }
 
 func (h *requestHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	if request.URL.Path != h.path {
-		writer.WriteHeader(http.StatusNotFound)
-		return
+	var extraReader io.Reader
+	var responseHeader = http.Header{}
+
+	if !h.UsePathEarlyData {
+		if request.URL.Path != h.path {
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		if str := request.Header.Get("Sec-WebSocket-Protocol"); str != "" {
+			if ed, err := base64.RawURLEncoding.DecodeString(replacer.Replace(str)); err == nil && len(ed) > 0 {
+				extraReader = bytes.NewReader(ed)
+				responseHeader.Set("Sec-WebSocket-Protocol", str)
+			}
+		}
+	} else {
+		if strings.HasPrefix(request.URL.RequestURI(), h.path) {
+			if ed, err := base64.RawURLEncoding.DecodeString(request.URL.RequestURI()[len(h.path):]); err == nil && len(ed) > 0 {
+				extraReader = bytes.NewReader(ed)
+			}
+		} else {
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
 	}
-	conn, err := upgrader.Upgrade(writer, request, nil)
+
+	conn, err := upgrader.Upgrade(writer, request, responseHeader)
 	if err != nil {
 		newError("failed to convert to WebSocket connection").Base(err).WriteToLog()
 		return
@@ -54,12 +80,6 @@ func (h *requestHandler) ServeHTTP(writer http.ResponseWriter, request *http.Req
 		}
 	}
 
-	var extraReader io.Reader
-	if str := request.Header.Get("Sec-WebSocket-Protocol"); str != "" {
-		if ed, err := base64.StdEncoding.DecodeString(str); err == nil && len(ed) > 0 {
-			extraReader = bytes.NewReader(ed)
-		}
-	}
 	h.ln.addConn(newConnection(conn, remoteAddr, extraReader))
 }
 
@@ -82,7 +102,8 @@ func ListenWS(ctx context.Context, address net.Address, port net.Port, streamSet
 		if streamSettings.SocketSettings == nil {
 			streamSettings.SocketSettings = &internet.SocketConfig{}
 		}
-		streamSettings.SocketSettings.AcceptProxyProtocol = l.config.AcceptProxyProtocol
+		streamSettings.SocketSettings.AcceptProxyProtocol =
+			l.config.AcceptProxyProtocol || streamSettings.SocketSettings.AcceptProxyProtocol
 	}
 	var listener net.Listener
 	var err error
@@ -124,11 +145,12 @@ func ListenWS(ctx context.Context, address net.Address, port net.Port, streamSet
 
 	l.server = http.Server{
 		Handler: &requestHandler{
-			path: wsSettings.GetNormalizedPath(),
-			ln:   l,
+			path:             wsSettings.GetNormalizedPath(),
+			ln:               l,
+			UsePathEarlyData: wsSettings.UsePathEarlyData,
 		},
 		ReadHeaderTimeout: time.Second * 4,
-		MaxHeaderBytes:    2048,
+		MaxHeaderBytes:    4096,
 	}
 
 	go func() {
