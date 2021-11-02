@@ -1,0 +1,309 @@
+diff --git a/core/core.go b/core/core.go
+index ca55a5e..0f27d41 100644
+--- a/core/core.go
++++ b/core/core.go
+@@ -18,10 +18,13 @@ import (
+ )
+ 
+ var (
+-	version  = "1.5.0"
++	version  = "1.5.0-1"
+ 	build    = "Custom"
+ 	codename = "Xray, Penetrates Everything."
+ 	intro    = "A unified platform for anti-censorship."
++	handshakefingerprint = "TLS handshake fingerprint : Chrome-v91-34821122db257295."
++	commitID = "NOT_DEFINED_AT_ALL"
++	information = "NOT_DEFINED_AT_ALL"
+ )
+ 
+ // Version returns Xray's version as a string, in the form of "x.y.z" where x, y and z are numbers.
+@@ -35,5 +38,8 @@ func VersionStatement() []string {
+ 	return []string{
+ 		serial.Concat("Xray ", Version(), " (", codename, ") ", build, " (", runtime.Version(), " ", runtime.GOOS, "/", runtime.GOARCH, ")"),
+ 		intro,
++		handshakefingerprint,
++		commitID,
++		information,
+ 	}
+ }
+diff --git a/go.mod b/go.mod
+index 8c1526e..b461959 100644
+--- a/go.mod
++++ b/go.mod
+@@ -19,9 +19,9 @@ require (
+ 	github.com/xtls/go v0.0.0-20210920065950-d4af136d3672
+ 	go.starlark.net v0.0.0-20211013185944-b0039bd2cfe3
+ 	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
+-	golang.org/x/net v0.0.0-20211020060615-d418f374d309
++	golang.org/x/net v0.0.0-20211029224645-99673261e6eb
+ 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+-	golang.org/x/sys v0.0.0-20211020064051-0ec99a608a1b
++	golang.org/x/sys v0.0.0-20211031064116-611d5d643895
+ 	google.golang.org/grpc v1.41.0
+ 	google.golang.org/protobuf v1.27.1
+ 	h12.io/socks v1.0.3
+@@ -48,3 +48,5 @@ require (
+ 	gopkg.in/yaml.v2 v2.4.0 // indirect
+ 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
+ )
++
++replace github.com/refraction-networking/utls v0.0.0-20210713165636-0b2885c8c0d4 => github.com/rosebe/utls v0.0.0-20210716043400-b171aa99ecee
+diff --git a/go.sum b/go.sum
+index 5d25bbf..2f1b87d 100644
+--- a/go.sum
++++ b/go.sum
+@@ -161,11 +161,11 @@ github.com/prometheus/client_model v0.0.0-20180712105110-5c3871d89910/go.mod h1:
+ github.com/prometheus/client_model v0.0.0-20190812154241-14fe0d1b01d4/go.mod h1:xMI15A0UPsDsEKsMN9yxemIoYk6Tm2C1GtYGdfGttqA=
+ github.com/prometheus/common v0.0.0-20180801064454-c7de2306084e/go.mod h1:daVV7qP5qjZbuso7PdcryaAu0sAZbrN9i7WWcTMWvro=
+ github.com/prometheus/procfs v0.0.0-20180725123919-05ee40e3a273/go.mod h1:c3At6R/oaqEKCNdg8wHV1ftS6bRYblBhIjjI8uT2IGk=
+-github.com/refraction-networking/utls v0.0.0-20210713165636-0b2885c8c0d4 h1:n9NMHJusHylTmtaJ0Qe0VV9dkTZLiwAxHmrI/l98GeE=
+-github.com/refraction-networking/utls v0.0.0-20210713165636-0b2885c8c0d4/go.mod h1:tz9gX959MEFfFN5whTIocCLUG57WiILqtdVxI8c6Wj0=
+ github.com/riobard/go-bloom v0.0.0-20200614022211-cdc8013cb5b3 h1:f/FNXud6gA3MNr8meMVVGxhp+QBTqY91tM8HjEuMjGg=
+ github.com/riobard/go-bloom v0.0.0-20200614022211-cdc8013cb5b3/go.mod h1:HgjTstvQsPGkxUsCd2KWxErBblirPizecHcpD3ffK+s=
+ github.com/rogpeppe/fastuuid v1.2.0/go.mod h1:jVj6XXZzXRy/MSR5jhDC/2q6DgLz+nrA6LYCDYWNEvQ=
++github.com/rosebe/utls v0.0.0-20210716043400-b171aa99ecee h1:yLTT/Pt2jDjoqgEK8tEFHPM1M2QViZFldjhyQnvX8Ek=
++github.com/rosebe/utls v0.0.0-20210716043400-b171aa99ecee/go.mod h1:s2Us8VLSRYLizbRWsUmCGygod30YGhaP1gvkQ6icmbU=
+ github.com/russross/blackfriday v1.5.2/go.mod h1:JO/DiYxRf+HjHt06OyowR9PTA263kcR/rfWxYHBV53g=
+ github.com/seiflotfy/cuckoofilter v0.0.0-20201222105146-bc6005554a0c h1:pqy40B3MQWYrza7YZXOXgl0Nf0QGFqrOC0BKae1UNAA=
+ github.com/seiflotfy/cuckoofilter v0.0.0-20201222105146-bc6005554a0c/go.mod h1:bR6DqgcAl1zTcOX8/pE2Qkj9XO00eCNqmKb7lXP8EAg=
+@@ -254,8 +254,8 @@ golang.org/x/net v0.0.0-20210226172049-e18ecbb05110/go.mod h1:m0MpNAwzfU5UDzcl9v
+ golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4/go.mod h1:p54w0d4576C0XHj96bSt6lcn1PtDYWL6XObtHCRCNQM=
+ golang.org/x/net v0.0.0-20210428140749-89ef3d95e781/go.mod h1:OJAsFXCWl8Ukc7SiCT/9KSuxbyM7479/AVlXFRxuMCk=
+ golang.org/x/net v0.0.0-20210805182204-aaa1db679c0d/go.mod h1:9nx3DQGgdP8bBQD5qxJ1jj9UTztislL4KSBs9R2vV5Y=
+-golang.org/x/net v0.0.0-20211020060615-d418f374d309 h1:A0lJIi+hcTR6aajJH4YqKWwohY4aW9RO7oRMcdv+HKI=
+-golang.org/x/net v0.0.0-20211020060615-d418f374d309/go.mod h1:9nx3DQGgdP8bBQD5qxJ1jj9UTztislL4KSBs9R2vV5Y=
++golang.org/x/net v0.0.0-20211029224645-99673261e6eb h1:pirldcYWx7rx7kE5r+9WsOXPXK0+WH5+uZ7uPmJ44uM=
++golang.org/x/net v0.0.0-20211029224645-99673261e6eb/go.mod h1:9nx3DQGgdP8bBQD5qxJ1jj9UTztislL4KSBs9R2vV5Y=
+ golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be/go.mod h1:N/0e6XlmueqKjAGxoOufVs8QHGRruUQn6yWY3a++T0U=
+ golang.org/x/oauth2 v0.0.0-20181017192945-9dcd33a902f4/go.mod h1:N/0e6XlmueqKjAGxoOufVs8QHGRruUQn6yWY3a++T0U=
+ golang.org/x/oauth2 v0.0.0-20181203162652-d668ce993890/go.mod h1:N/0e6XlmueqKjAGxoOufVs8QHGRruUQn6yWY3a++T0U=
+@@ -293,8 +293,8 @@ golang.org/x/sys v0.0.0-20210615035016-665e8c7367d1/go.mod h1:oPkhp1MJrh7nUepCBc
+ golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.0.0-20210809222454-d867a43fc93e/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.0.0-20210908233432-aa78b53d3365/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+-golang.org/x/sys v0.0.0-20211020064051-0ec99a608a1b h1:byBDhtWGQmWDrv1MlEv/BzGRMkw36h9QqsNnZQcDhRw=
+-golang.org/x/sys v0.0.0-20211020064051-0ec99a608a1b/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.0.0-20211031064116-611d5d643895 h1:iaNpwpnrgL5jzWS0vCNnfa8HqzxveCFpFx3uC/X4Tps=
++golang.org/x/sys v0.0.0-20211031064116-611d5d643895/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
+ golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
+ golang.org/x/text v0.3.1-0.20180807135948-17ff2d5776d2/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
+diff --git a/infra/conf/transport_internet.go b/infra/conf/transport_internet.go
+index d2cb35c..84e8f96 100644
+--- a/infra/conf/transport_internet.go
++++ b/infra/conf/transport_internet.go
+@@ -144,6 +144,7 @@ type WebSocketConfig struct {
+ 	Path                string            `json:"path"`
+ 	Headers             map[string]string `json:"headers"`
+ 	AcceptProxyProtocol bool              `json:"acceptProxyProtocol"`
++	UsePathEarlyData    bool              `json:"usePathEarlyData"`
+ }
+ 
+ // Build implements Buildable.
+@@ -170,6 +171,7 @@ func (c *WebSocketConfig) Build() (proto.Message, error) {
+ 		Path:   path,
+ 		Header: header,
+ 		Ed:     ed,
++		UsePathEarlyData: c.UsePathEarlyData,
+ 	}
+ 	if c.AcceptProxyProtocol {
+ 		config.AcceptProxyProtocol = c.AcceptProxyProtocol
+diff --git a/transport/internet/websocket/config.pb.go b/transport/internet/websocket/config.pb.go
+index be3547e..42808d9 100644
+--- a/transport/internet/websocket/config.pb.go
++++ b/transport/internet/websocket/config.pb.go
+@@ -85,6 +85,7 @@ type Config struct {
+ 	Header              []*Header `protobuf:"bytes,3,rep,name=header,proto3" json:"header,omitempty"`
+ 	AcceptProxyProtocol bool      `protobuf:"varint,4,opt,name=accept_proxy_protocol,json=acceptProxyProtocol,proto3" json:"accept_proxy_protocol,omitempty"`
+ 	Ed                  uint32    `protobuf:"varint,5,opt,name=ed,proto3" json:"ed,omitempty"`
++	UsePathEarlyData    bool      `protobuf:"varint,6,opt,name=use_path_early_data,json=usePathEarlyData,proto3" json:"use_path_early_data,omitempty"`
+ }
+ 
+ func (x *Config) Reset() {
+@@ -147,6 +148,13 @@ func (x *Config) GetEd() uint32 {
+ 	return 0
+ }
+ 
++func (x *Config) GetUsePathEarlyData() bool {
++	if x != nil {
++		return x.UsePathEarlyData
++	}
++	return false
++}
++
+ var File_transport_internet_websocket_config_proto protoreflect.FileDescriptor
+ 
+ var file_transport_internet_websocket_config_proto_rawDesc = []byte{
+@@ -158,7 +166,7 @@ var file_transport_internet_websocket_config_proto_rawDesc = []byte{
+ 	0x0a, 0x06, 0x48, 0x65, 0x61, 0x64, 0x65, 0x72, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18,
+ 	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x14, 0x0a, 0x05, 0x76, 0x61,
+ 	0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65,
+-	0x22, 0xa9, 0x01, 0x0a, 0x06, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x12, 0x0a, 0x04, 0x70,
++	0x22, 0xd8, 0x01, 0x0a, 0x06, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x12, 0x0a, 0x04, 0x70,
+ 	0x61, 0x74, 0x68, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x70, 0x61, 0x74, 0x68, 0x12,
+ 	0x41, 0x0a, 0x06, 0x68, 0x65, 0x61, 0x64, 0x65, 0x72, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32,
+ 	0x29, 0x2e, 0x78, 0x72, 0x61, 0x79, 0x2e, 0x74, 0x72, 0x61, 0x6e, 0x73, 0x70, 0x6f, 0x72, 0x74,
+@@ -168,16 +176,19 @@ var file_transport_internet_websocket_config_proto_rawDesc = []byte{
+ 	0x78, 0x79, 0x5f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x18, 0x04, 0x20, 0x01, 0x28,
+ 	0x08, 0x52, 0x13, 0x61, 0x63, 0x63, 0x65, 0x70, 0x74, 0x50, 0x72, 0x6f, 0x78, 0x79, 0x50, 0x72,
+ 	0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x12, 0x0e, 0x0a, 0x02, 0x65, 0x64, 0x18, 0x05, 0x20, 0x01,
+-	0x28, 0x0d, 0x52, 0x02, 0x65, 0x64, 0x4a, 0x04, 0x08, 0x01, 0x10, 0x02, 0x42, 0x85, 0x01, 0x0a,
+-	0x25, 0x63, 0x6f, 0x6d, 0x2e, 0x78, 0x72, 0x61, 0x79, 0x2e, 0x74, 0x72, 0x61, 0x6e, 0x73, 0x70,
+-	0x6f, 0x72, 0x74, 0x2e, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x65, 0x74, 0x2e, 0x77, 0x65, 0x62,
+-	0x73, 0x6f, 0x63, 0x6b, 0x65, 0x74, 0x50, 0x01, 0x5a, 0x36, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62,
+-	0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x78, 0x74, 0x6c, 0x73, 0x2f, 0x78, 0x72, 0x61, 0x79, 0x2d, 0x63,
+-	0x6f, 0x72, 0x65, 0x2f, 0x74, 0x72, 0x61, 0x6e, 0x73, 0x70, 0x6f, 0x72, 0x74, 0x2f, 0x69, 0x6e,
+-	0x74, 0x65, 0x72, 0x6e, 0x65, 0x74, 0x2f, 0x77, 0x65, 0x62, 0x73, 0x6f, 0x63, 0x6b, 0x65, 0x74,
+-	0xaa, 0x02, 0x21, 0x58, 0x72, 0x61, 0x79, 0x2e, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x70, 0x6f, 0x72,
+-	0x74, 0x2e, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x65, 0x74, 0x2e, 0x57, 0x65, 0x62, 0x73, 0x6f,
+-	0x63, 0x6b, 0x65, 0x74, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
++	0x28, 0x0d, 0x52, 0x02, 0x65, 0x64, 0x12, 0x2d, 0x0a, 0x13, 0x75, 0x73, 0x65, 0x5f, 0x70, 0x61,
++	0x74, 0x68, 0x5f, 0x65, 0x61, 0x72, 0x6c, 0x79, 0x5f, 0x64, 0x61, 0x74, 0x61, 0x18, 0x06, 0x20,
++	0x01, 0x28, 0x08, 0x52, 0x10, 0x75, 0x73, 0x65, 0x50, 0x61, 0x74, 0x68, 0x45, 0x61, 0x72, 0x6c,
++	0x79, 0x44, 0x61, 0x74, 0x61, 0x4a, 0x04, 0x08, 0x01, 0x10, 0x02, 0x42, 0x85, 0x01, 0x0a, 0x25,
++	0x63, 0x6f, 0x6d, 0x2e, 0x78, 0x72, 0x61, 0x79, 0x2e, 0x74, 0x72, 0x61, 0x6e, 0x73, 0x70, 0x6f,
++	0x72, 0x74, 0x2e, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x65, 0x74, 0x2e, 0x77, 0x65, 0x62, 0x73,
++	0x6f, 0x63, 0x6b, 0x65, 0x74, 0x50, 0x01, 0x5a, 0x36, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e,
++	0x63, 0x6f, 0x6d, 0x2f, 0x78, 0x74, 0x6c, 0x73, 0x2f, 0x78, 0x72, 0x61, 0x79, 0x2d, 0x63, 0x6f,
++	0x72, 0x65, 0x2f, 0x74, 0x72, 0x61, 0x6e, 0x73, 0x70, 0x6f, 0x72, 0x74, 0x2f, 0x69, 0x6e, 0x74,
++	0x65, 0x72, 0x6e, 0x65, 0x74, 0x2f, 0x77, 0x65, 0x62, 0x73, 0x6f, 0x63, 0x6b, 0x65, 0x74, 0xaa,
++	0x02, 0x21, 0x58, 0x72, 0x61, 0x79, 0x2e, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x70, 0x6f, 0x72, 0x74,
++	0x2e, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x65, 0x74, 0x2e, 0x57, 0x65, 0x62, 0x73, 0x6f, 0x63,
++	0x6b, 0x65, 0x74, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+ }
+ 
+ var (
+diff --git a/transport/internet/websocket/config.proto b/transport/internet/websocket/config.proto
+index 85365c3..27e5932 100644
+--- a/transport/internet/websocket/config.proto
++++ b/transport/internet/websocket/config.proto
+@@ -22,4 +22,6 @@ message Config {
+   bool accept_proxy_protocol = 4;
+ 
+   uint32 ed = 5;
++
++  bool use_path_early_data = 6;
+ }
+diff --git a/transport/internet/websocket/dialer.go b/transport/internet/websocket/dialer.go
+index 6a06a67..a6ed83c 100644
+--- a/transport/internet/websocket/dialer.go
++++ b/transport/internet/websocket/dialer.go
+@@ -92,10 +92,10 @@ func dialWebSocket(ctx context.Context, dest net.Destination, streamSettings *in
+ 	if (protocol == "ws" && dest.Port == 80) || (protocol == "wss" && dest.Port == 443) {
+ 		host = dest.Address.String()
+ 	}
+-	uri := protocol + "://" + host + wsSettings.GetNormalizedPath()
++	uriBase := protocol + "://" + host + wsSettings.GetNormalizedPath()
+ 
+ 	if conns != nil {
+-		data := []byte(uri)
++		data := []byte(uriBase)
+ 		if ed != nil {
+ 			data = append(data, " "+base64.RawURLEncoding.EncodeToString(ed)...)
+ 		}
+@@ -119,9 +119,15 @@ func dialWebSocket(ctx context.Context, dest net.Destination, streamSettings *in
+ 	}
+ 
+ 	header := wsSettings.GetRequestHeader()
++	uri := uriBase
+ 	if ed != nil {
+ 		// RawURLEncoding is support by both V2Ray/V2Fly and XRay.
+-		header.Set("Sec-WebSocket-Protocol", base64.RawURLEncoding.EncodeToString(ed))
++		if !wsSettings.UsePathEarlyData {
++		//	header.Set("Sec-WebSocket-Protocol", base64.StdEncoding.EncodeToString(ed))		//XRay origin: StdEncoding. use RawURLEncoding to encode early data
++			header.Set("Sec-WebSocket-Protocol", base64.RawURLEncoding.EncodeToString(ed))	//XRay origin: StdEncoding. use RawURLEncoding to encode early data
++		} else {
++			uri += base64.RawURLEncoding.EncodeToString(ed)
++		}
+ 	}
+ 
+ 	conn, resp, err := dialer.Dial(uri, header)
+@@ -130,7 +136,7 @@ func dialWebSocket(ctx context.Context, dest net.Destination, streamSettings *in
+ 		if resp != nil {
+ 			reason = resp.Status
+ 		}
+-		return nil, newError("failed to dial to (", uri, "): ", reason).Base(err)
++		return nil, newError("failed to dial to (", uriBase, "): ", reason).Base(err)
+ 	}
+ 
+ 	return newConnection(conn, conn.RemoteAddr(), nil), nil
+diff --git a/transport/internet/websocket/hub.go b/transport/internet/websocket/hub.go
+index 4f377eb..7a591e4 100644
+--- a/transport/internet/websocket/hub.go
++++ b/transport/internet/websocket/hub.go
+@@ -22,8 +22,9 @@ import (
+ )
+ 
+ type requestHandler struct {
+-	path string
+-	ln   *Listener
++	path             string
++	ln               *Listener
++	UsePathEarlyData bool
+ }
+ 
+ var replacer = strings.NewReplacer("+", "-", "/", "_", "=", "")
+@@ -38,17 +39,29 @@ var upgrader = &websocket.Upgrader{
+ }
+ 
+ func (h *requestHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+-	if request.URL.Path != h.path {
+-		writer.WriteHeader(http.StatusNotFound)
+-		return
+-	}
+-
+ 	var extraReader io.Reader
+ 	responseHeader := http.Header{}
+-	if str := request.Header.Get("Sec-WebSocket-Protocol"); str != "" {
+-		if ed, err := base64.RawURLEncoding.DecodeString(replacer.Replace(str)); err == nil && len(ed) > 0 {
+-			extraReader = bytes.NewReader(ed)
+-			responseHeader.Set("Sec-WebSocket-Protocol", str)
++
++	if !h.UsePathEarlyData {
++		if request.URL.Path != h.path {
++			writer.WriteHeader(http.StatusNotFound)
++			return
++		}
++
++		if str := request.Header.Get("Sec-WebSocket-Protocol"); str != "" {
++			if ed, err := base64.RawURLEncoding.DecodeString(replacer.Replace(str)); err == nil && len(ed) > 0 {
++				extraReader = bytes.NewReader(ed)
++				responseHeader.Set("Sec-WebSocket-Protocol", str)
++			}
++		}
++	} else {
++		if strings.HasPrefix(request.URL.RequestURI(), h.path) {
++			if ed, err := base64.RawURLEncoding.DecodeString(request.URL.RequestURI()[len(h.path):]); err == nil && len(ed) > 0 {
++				extraReader = bytes.NewReader(ed)
++			}
++		} else {
++			writer.WriteHeader(http.StatusNotFound)
++			return
+ 		}
+ 	}
+ 
+@@ -132,8 +145,9 @@ func ListenWS(ctx context.Context, address net.Address, port net.Port, streamSet
+ 
+ 	l.server = http.Server{
+ 		Handler: &requestHandler{
+-			path: wsSettings.GetNormalizedPath(),
+-			ln:   l,
++			path:             wsSettings.GetNormalizedPath(),
++			ln:               l,
++			UsePathEarlyData: wsSettings.UsePathEarlyData,
+ 		},
+ 		ReadHeaderTimeout: time.Second * 4,
+ 		MaxHeaderBytes:    4096,
+diff --git a/transport/pipe/reader.go b/transport/pipe/reader.go
+index 6673343..54ec10c 100644
+--- a/transport/pipe/reader.go
++++ b/transport/pipe/reader.go
+@@ -25,3 +25,8 @@ func (r *Reader) ReadMultiBufferTimeout(d time.Duration) (buf.MultiBuffer, error
+ func (r *Reader) Interrupt() {
+ 	r.pipe.Interrupt()
+ }
++
++// Close implements io.Closer. After the pipe is closed, writing to the pipe will return io.ErrClosedPipe, while reading will return io.EOF.
++func (r *Reader) Close() error {
++	return r.pipe.Close()
++}
