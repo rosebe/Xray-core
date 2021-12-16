@@ -15,6 +15,7 @@ import (
 	"github.com/xtls/xray-core/testing/servers/tcp"
 	"github.com/xtls/xray-core/transport/internet"
 	. "github.com/xtls/xray-core/transport/internet/http"
+	"github.com/xtls/xray-core/transport/internet/stat"
 	"github.com/xtls/xray-core/transport/internet/tls"
 )
 
@@ -28,7 +29,7 @@ func TestHTTPConnection(t *testing.T) {
 		SecuritySettings: &tls.Config{
 			Certificate: []*tls.Certificate{tls.ParseCertificate(cert.MustGenerate(nil, cert.CommonName("www.example.com")))},
 		},
-	}, func(conn internet.Connection) {
+	}, func(conn stat.Connection) {
 		go func() {
 			defer conn.Close()
 
