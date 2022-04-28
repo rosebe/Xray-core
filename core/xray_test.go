@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/golang/protobuf/proto"
+
 	"github.com/xtls/xray-core/app/dispatcher"
 	"github.com/xtls/xray-core/app/proxyman"
 	"github.com/xtls/xray-core/common"
@@ -48,14 +49,16 @@ func TestXrayClose(t *testing.T) {
 		Inbound: []*InboundHandlerConfig{
 			{
 				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
-					PortRange: net.SinglePortRange(port),
-					Listen:    net.NewIPOrDomain(net.LocalHostIP),
+					PortList: &net.PortList{
+						Range: []*net.PortRange{net.SinglePortRange(port)},
+					},
+					Listen: net.NewIPOrDomain(net.LocalHostIP),
 				}),
 				ProxySettings: serial.ToTypedMessage(&dokodemo.Config{
 					Address: net.NewIPOrDomain(net.LocalHostIP),
 					Port:    uint32(0),
 					NetworkList: &net.NetworkList{
-						Network: []net.Network{net.Network_TCP, net.Network_UDP},
+						Network: []net.Network{net.Network_TCP},
 					},
 				}),
 			},
