@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,11 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/protobuf/proto"
-
 	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/main/commands/base"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 type serviceHandler func(ctx context.Context, conn *grpc.ClientConn, cmd *base.Command, args []string) string
@@ -56,10 +54,10 @@ func loadArg(arg string) (out io.Reader, err error) {
 		data, err = fetchHTTPContent(arg)
 
 	case arg == "stdin:":
-		data, err = ioutil.ReadAll(os.Stdin)
+		data, err = io.ReadAll(os.Stdin)
 
 	default:
-		data, err = ioutil.ReadFile(arg)
+		data, err = os.ReadFile(arg)
 	}
 
 	if err != nil {

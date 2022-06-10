@@ -13,17 +13,17 @@ import (
 	"hash/fnv"
 	"io"
 
-	"golang.org/x/crypto/chacha20poly1305"
-
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/bitmask"
 	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/common/crypto"
 	"github.com/xtls/xray-core/common/dice"
+	"github.com/xtls/xray-core/common/drain"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/proxy/vmess"
 	vmessaead "github.com/xtls/xray-core/proxy/vmess/aead"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 func hashTimestamp(h hash.Hash, t protocol.Timestamp) []byte {
@@ -44,10 +44,12 @@ type ClientSession struct {
 	responseBodyIV  [16]byte
 	responseReader  io.Reader
 	responseHeader  byte
+
+	readDrainer drain.Drainer
 }
 
 // NewClientSession creates a new ClientSession.
-func NewClientSession(ctx context.Context, isAEAD bool, idHash protocol.IDHash) *ClientSession {
+func NewClientSession(ctx context.Context, isAEAD bool, idHash protocol.IDHash, behaviorSeed int64) *ClientSession {
 	session := &ClientSession{
 		isAEAD: isAEAD,
 		idHash: idHash,
@@ -67,6 +69,14 @@ func NewClientSession(ctx context.Context, isAEAD bool, idHash protocol.IDHash) 
 		copy(session.responseBodyKey[:], BodyKey[:16])
 		BodyIV := sha256.Sum256(session.requestBodyIV[:])
 		copy(session.responseBodyIV[:], BodyIV[:16])
+	}
+	{
+		var err error
+		session.readDrainer, err = drain.NewBehaviorSeedLimitedDrainer(behaviorSeed, 18, 3266, 64)
+		if err != nil {
+			newError("unable to initialize drainer").Base(err).WriteToLog()
+			session.readDrainer = drain.NewNopDrainer()
+		}
 	}
 
 	return session
@@ -171,6 +181,17 @@ func (c *ClientSession) EncodeRequestBody(request *protocol.RequestHeader, write
 			NonceGenerator:          GenerateChunkNonce(c.requestBodyIV[:], uint32(aead.NonceSize())),
 			AdditionalDataGenerator: crypto.GenerateEmptyBytes(),
 		}
+		if request.Option.Has(protocol.RequestOptionAuthenticatedLength) {
+			AuthenticatedLengthKey := vmessaead.KDF16(c.requestBodyKey[:], "auth_len")
+			AuthenticatedLengthKeyAEAD := crypto.NewAesGcm(AuthenticatedLengthKey)
+
+			lengthAuth := &crypto.AEADAuthenticator{
+				AEAD:                    AuthenticatedLengthKeyAEAD,
+				NonceGenerator:          GenerateChunkNonce(c.requestBodyIV[:], uint32(aead.NonceSize())),
+				AdditionalDataGenerator: crypto.GenerateEmptyBytes(),
+			}
+			sizeParser = NewAEADSizeParser(lengthAuth)
+		}
 		return crypto.NewAuthenticationWriter(auth, sizeParser, writer, request.Command.TransferType(), padding)
 	case protocol.SecurityType_CHACHA20_POLY1305:
 		aead, err := chacha20poly1305.New(GenerateChacha20Poly1305Key(c.requestBodyKey[:]))
@@ -180,6 +201,18 @@ func (c *ClientSession) EncodeRequestBody(request *protocol.RequestHeader, write
 			AEAD:                    aead,
 			NonceGenerator:          GenerateChunkNonce(c.requestBodyIV[:], uint32(aead.NonceSize())),
 			AdditionalDataGenerator: crypto.GenerateEmptyBytes(),
+		}
+		if request.Option.Has(protocol.RequestOptionAuthenticatedLength) {
+			AuthenticatedLengthKey := vmessaead.KDF16(c.requestBodyKey[:], "auth_len")
+			AuthenticatedLengthKeyAEAD, err := chacha20poly1305.New(GenerateChacha20Poly1305Key(AuthenticatedLengthKey))
+			common.Must(err)
+
+			lengthAuth := &crypto.AEADAuthenticator{
+				AEAD:                    AuthenticatedLengthKeyAEAD,
+				NonceGenerator:          GenerateChunkNonce(c.requestBodyIV[:], uint32(aead.NonceSize())),
+				AdditionalDataGenerator: crypto.GenerateEmptyBytes(),
+			}
+			sizeParser = NewAEADSizeParser(lengthAuth)
 		}
 		return crypto.NewAuthenticationWriter(auth, sizeParser, writer, request.Command.TransferType(), padding)
 	default:
@@ -202,12 +235,15 @@ func (c *ClientSession) DecodeResponseHeader(reader io.Reader) (*protocol.Respon
 		var decryptedResponseHeaderLength int
 		var decryptedResponseHeaderLengthBinaryDeserializeBuffer uint16
 
-		if _, err := io.ReadFull(reader, aeadEncryptedResponseHeaderLength[:]); err != nil {
-			return nil, newError("Unable to Read Header Len").Base(err)
+		if n, err := io.ReadFull(reader, aeadEncryptedResponseHeaderLength[:]); err != nil {
+			c.readDrainer.AcknowledgeReceive(n)
+			return nil, drain.WithError(c.readDrainer, reader, newError("Unable to Read Header Len").Base(err))
+		} else { // nolint: golint
+			c.readDrainer.AcknowledgeReceive(n)
 		}
 		if decryptedResponseHeaderLengthBinaryBuffer, err := aeadResponseHeaderLengthEncryptionAEAD.Open(nil, aeadResponseHeaderLengthEncryptionIV, aeadEncryptedResponseHeaderLength[:], nil); err != nil {
-			return nil, newError("Failed To Decrypt Length").Base(err)
-		} else {
+			return nil, drain.WithError(c.readDrainer, reader, newError("Failed To Decrypt Length").Base(err))
+		} else { // nolint: golint
 			common.Must(binary.Read(bytes.NewReader(decryptedResponseHeaderLengthBinaryBuffer), binary.BigEndian, &decryptedResponseHeaderLengthBinaryDeserializeBuffer))
 			decryptedResponseHeaderLength = int(decryptedResponseHeaderLengthBinaryDeserializeBuffer)
 		}
@@ -220,13 +256,16 @@ func (c *ClientSession) DecodeResponseHeader(reader io.Reader) (*protocol.Respon
 
 		encryptedResponseHeaderBuffer := make([]byte, decryptedResponseHeaderLength+16)
 
-		if _, err := io.ReadFull(reader, encryptedResponseHeaderBuffer); err != nil {
-			return nil, newError("Unable to Read Header Data").Base(err)
+		if n, err := io.ReadFull(reader, encryptedResponseHeaderBuffer); err != nil {
+			c.readDrainer.AcknowledgeReceive(n)
+			return nil, drain.WithError(c.readDrainer, reader, newError("Unable to Read Header Data").Base(err))
+		} else { // nolint: golint
+			c.readDrainer.AcknowledgeReceive(n)
 		}
 
 		if decryptedResponseHeaderBuffer, err := aeadResponseHeaderPayloadEncryptionAEAD.Open(nil, aeadResponseHeaderPayloadEncryptionIV, encryptedResponseHeaderBuffer, nil); err != nil {
-			return nil, newError("Failed To Decrypt Payload").Base(err)
-		} else {
+			return nil, drain.WithError(c.readDrainer, reader, newError("Failed To Decrypt Payload").Base(err))
+		} else { // nolint: golint
 			c.responseReader = bytes.NewReader(decryptedResponseHeaderBuffer)
 		}
 	}
@@ -312,6 +351,17 @@ func (c *ClientSession) DecodeResponseBody(request *protocol.RequestHeader, read
 			NonceGenerator:          GenerateChunkNonce(c.responseBodyIV[:], uint32(aead.NonceSize())),
 			AdditionalDataGenerator: crypto.GenerateEmptyBytes(),
 		}
+		if request.Option.Has(protocol.RequestOptionAuthenticatedLength) {
+			AuthenticatedLengthKey := vmessaead.KDF16(c.requestBodyKey[:], "auth_len")
+			AuthenticatedLengthKeyAEAD := crypto.NewAesGcm(AuthenticatedLengthKey)
+
+			lengthAuth := &crypto.AEADAuthenticator{
+				AEAD:                    AuthenticatedLengthKeyAEAD,
+				NonceGenerator:          GenerateChunkNonce(c.requestBodyIV[:], uint32(aead.NonceSize())),
+				AdditionalDataGenerator: crypto.GenerateEmptyBytes(),
+			}
+			sizeParser = NewAEADSizeParser(lengthAuth)
+		}
 		return crypto.NewAuthenticationReader(auth, sizeParser, reader, request.Command.TransferType(), padding)
 	case protocol.SecurityType_CHACHA20_POLY1305:
 		aead, _ := chacha20poly1305.New(GenerateChacha20Poly1305Key(c.responseBodyKey[:]))
@@ -320,6 +370,18 @@ func (c *ClientSession) DecodeResponseBody(request *protocol.RequestHeader, read
 			AEAD:                    aead,
 			NonceGenerator:          GenerateChunkNonce(c.responseBodyIV[:], uint32(aead.NonceSize())),
 			AdditionalDataGenerator: crypto.GenerateEmptyBytes(),
+		}
+		if request.Option.Has(protocol.RequestOptionAuthenticatedLength) {
+			AuthenticatedLengthKey := vmessaead.KDF16(c.requestBodyKey[:], "auth_len")
+			AuthenticatedLengthKeyAEAD, err := chacha20poly1305.New(GenerateChacha20Poly1305Key(AuthenticatedLengthKey))
+			common.Must(err)
+
+			lengthAuth := &crypto.AEADAuthenticator{
+				AEAD:                    AuthenticatedLengthKeyAEAD,
+				NonceGenerator:          GenerateChunkNonce(c.requestBodyIV[:], uint32(aead.NonceSize())),
+				AdditionalDataGenerator: crypto.GenerateEmptyBytes(),
+			}
+			sizeParser = NewAEADSizeParser(lengthAuth)
 		}
 		return crypto.NewAuthenticationReader(auth, sizeParser, reader, request.Command.TransferType(), padding)
 	default:
