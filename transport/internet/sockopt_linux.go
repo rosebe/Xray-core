@@ -47,6 +47,12 @@ func applyOutboundSocketOptions(network string, address string, fd uintptr, conf
 		}
 	}
 
+	if  config.Interface != "" {
+                if err := syscall.BindToDevice(int(fd), config.Interface); err != nil {
+                        return newError("failed to set Interface").Base(err)
+                }
+        }
+
 	if isTCPSocket(network) {
 		tfo := config.ParseTFOValue()
 		if tfo > 0 {
@@ -57,6 +63,38 @@ func applyOutboundSocketOptions(network string, address string, fd uintptr, conf
 				return newError("failed to set TCP_FASTOPEN_CONNECT=", tfo).Base(err)
 			}
 		}
+
+		if config.TcpKeepAliveInterval > 0 || config.TcpKeepAliveIdle > 0 {
+			if config.TcpKeepAliveInterval > 0 {
+				if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, int(config.TcpKeepAliveInterval)); err != nil {
+					return newError("failed to set TCP_KEEPINTVL", err)
+				}
+			}
+			if config.TcpKeepAliveIdle > 0 {
+				if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_KEEPIDLE, int(config.TcpKeepAliveIdle)); err != nil {
+					return newError("failed to set TCP_KEEPIDLE", err)
+				}
+			}
+			if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, 1); err != nil {
+				return newError("failed to set SO_KEEPALIVE", err)
+			}
+		} else if config.TcpKeepAliveInterval < 0 || config.TcpKeepAliveIdle < 0 {
+			if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, 0); err != nil {
+				return newError("failed to unset SO_KEEPALIVE", err)
+			}
+		}
+
+		if config.TcpCongestion != "" {
+			if err := syscall.SetsockoptString(int(fd), syscall.SOL_TCP, syscall.TCP_CONGESTION, config.TcpCongestion); err != nil {
+				return newError("failed to set TCP_CONGESTION", err)
+			}
+		}
+
+		if config.TcpWindowClamp > 0 {
+                        if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_WINDOW_CLAMP, int(config.TcpWindowClamp)); err != nil {
+                                return newError("failed to set TCP_WINDOW_CLAMP", err)
+                        }
+                }
 	}
 
 	if config.Tproxy.IsEnabled() {
@@ -81,6 +119,38 @@ func applyInboundSocketOptions(network string, fd uintptr, config *SocketConfig)
 				return newError("failed to set TCP_FASTOPEN=", tfo).Base(err)
 			}
 		}
+
+		if config.TcpKeepAliveInterval > 0 || config.TcpKeepAliveIdle > 0 {
+			if config.TcpKeepAliveInterval > 0 {
+				if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, int(config.TcpKeepAliveInterval)); err != nil {
+					return newError("failed to set TCP_KEEPINTVL", err)
+				}
+			}
+			if config.TcpKeepAliveIdle > 0 {
+				if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_KEEPIDLE, int(config.TcpKeepAliveIdle)); err != nil {
+					return newError("failed to set TCP_KEEPIDLE", err)
+				}
+			}
+			if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, 1); err != nil {
+				return newError("failed to set SO_KEEPALIVE", err)
+			}
+		} else if config.TcpKeepAliveInterval < 0 || config.TcpKeepAliveIdle < 0 {
+			if err := syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, 0); err != nil {
+				return newError("failed to unset SO_KEEPALIVE", err)
+			}
+		}
+
+		if config.TcpCongestion != "" {
+			if err := syscall.SetsockoptString(int(fd), syscall.SOL_TCP, syscall.TCP_CONGESTION, config.TcpCongestion); err != nil {
+				return newError("failed to set TCP_CONGESTION", err)
+			}
+		}
+
+		if config.TcpWindowClamp > 0 {
+			if err := syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_WINDOW_CLAMP, int(config.TcpWindowClamp)); err != nil {
+                                return newError("failed to set TCP_WINDOW_CLAMP", err)
+                        }
+		}
 	}
 
 	if config.Tproxy.IsEnabled() {
@@ -94,6 +164,12 @@ func applyInboundSocketOptions(network string, fd uintptr, config *SocketConfig)
 		err2 := syscall.SetsockoptInt(int(fd), syscall.SOL_IP, syscall.IP_RECVORIGDSTADDR, 1)
 		if err1 != nil && err2 != nil {
 			return err1
+		}
+	}
+
+	if config.V6Only {
+		if err := syscall.SetsockoptInt(int(fd), syscall.SOL_IPV6, syscall.IPV6_V6ONLY, 1); err != nil {
+			return newError("failed to set IPV6_V6ONLY", err)
 		}
 	}
 
