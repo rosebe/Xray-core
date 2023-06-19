@@ -1,6 +1,8 @@
 package router
 
 import (
+	"strings"
+
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/features/outbound"
 	"github.com/xtls/xray-core/features/routing"
@@ -84,7 +86,6 @@ func (rr *RoutingRule) BuildCondition() (Condition, error) {
 			newError("MphDomainMatcher is enabled for ", len(rr.Domain), " domain rule(s)").AtDebug().WriteToLog()
 			conds.Add(matcher)
 		}
-
 	}
 
 	if len(rr.UserEmail) > 0 {
@@ -144,11 +145,11 @@ func (rr *RoutingRule) BuildCondition() (Condition, error) {
 	}
 
 	if len(rr.Attributes) > 0 {
-		cond, err := NewAttributeMatcher(rr.Attributes)
-		if err != nil {
-			return nil, err
+		configuredKeys := make(map[string]string)
+		for key, value := range rr.Attributes {
+			configuredKeys[strings.ToLower(key)] = strings.ToLower(value)
 		}
-		conds.Add(cond)
+		conds.Add(&AttributeMatcher{configuredKeys})
 	}
 
 	if conds.Len() == 0 {
@@ -159,9 +160,21 @@ func (rr *RoutingRule) BuildCondition() (Condition, error) {
 }
 
 func (br *BalancingRule) Build(ohm outbound.Manager) (*Balancer, error) {
-	return &Balancer{
-		selectors: br.OutboundSelector,
-		strategy:  &RandomStrategy{},
-		ohm:       ohm,
-	}, nil
+	switch br.Strategy {
+	case "leastPing":
+		return &Balancer{
+			selectors: br.OutboundSelector,
+			strategy:  &LeastPingStrategy{},
+			ohm:       ohm,
+		}, nil
+	case "random":
+		fallthrough
+	default:
+		return &Balancer{
+			selectors: br.OutboundSelector,
+			strategy:  &RandomStrategy{},
+			ohm:       ohm,
+		}, nil
+
+	}
 }

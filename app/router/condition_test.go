@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/golang/protobuf/proto"
-
 	. "github.com/xtls/xray-core/app/router"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/errors"
@@ -308,8 +307,10 @@ func TestRoutingRule(t *testing.T) {
 		},
 		{
 			rule: &RoutingRule{
-				Protocol:   []string{"http"},
-				Attributes: "attrs[':path'].startswith('/test')",
+				Protocol: []string{"http"},
+				Attributes: map[string]string{
+					":path": "/test",
+				},
 			},
 			test: []ruleTest{
 				{
