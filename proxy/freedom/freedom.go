@@ -4,6 +4,9 @@ package freedom
 
 import (
 	"context"
+	"crypto/rand"
+	"io"
+	"math/big"
 	"time"
 
 	"github.com/xtls/xray-core/common"
@@ -20,6 +23,7 @@ import (
 	"github.com/xtls/xray-core/features/stats"
 	"github.com/xtls/xray-core/transport"
 	"github.com/xtls/xray-core/transport/internet"
+	"github.com/xtls/xray-core/transport/internet/stat"
 )
 
 func init() {
@@ -116,12 +120,11 @@ func (h *Handler) Process(ctx context.Context, link *transport.Link, dialer inte
 			UDPOverride.Port = destination.Port
 		}
 	}
-	newError("opening connection to ", destination).WriteToLog(session.ExportIDToError(ctx))
 
 	input := link.Reader
 	output := link.Writer
 
-	var conn internet.Connection
+	var conn stat.Connection
 	err := retry.ExponentialBackoff(5, 100).On(func() error {
 		dialDest := destination
 		if h.config.useIP() && dialDest.Address.Family().IsDomain() {
@@ -147,17 +150,38 @@ func (h *Handler) Process(ctx context.Context, link *transport.Link, dialer inte
 		return newError("failed to open connection to ", destination).Base(err)
 	}
 	defer conn.Close()
+	newError("connection opened to ", destination, ", local endpoint ", conn.LocalAddr(), ", remote endpoint ", conn.RemoteAddr()).WriteToLog(session.ExportIDToError(ctx))
+
+	var newCtx context.Context
+	var newCancel context.CancelFunc
+	if session.TimeoutOnlyFromContext(ctx) {
+		newCtx, newCancel = context.WithCancel(context.Background())
+	}
 
 	plcy := h.policy()
 	ctx, cancel := context.WithCancel(ctx)
-	timer := signal.CancelAfterInactivity(ctx, cancel, plcy.Timeouts.ConnectionIdle)
+	timer := signal.CancelAfterInactivity(ctx, func() {
+		cancel()
+		if newCancel != nil {
+			newCancel()
+		}
+	}, plcy.Timeouts.ConnectionIdle)
 
 	requestDone := func() error {
 		defer timer.SetTimeout(plcy.Timeouts.DownlinkOnly)
 
 		var writer buf.Writer
 		if destination.Network == net.Network_TCP {
-			writer = buf.NewWriter(conn)
+			if h.config.Fragment != nil {
+				newError("FRAGMENT", h.config.Fragment.PacketsFrom, h.config.Fragment.PacketsTo, h.config.Fragment.LengthMin, h.config.Fragment.LengthMax,
+					h.config.Fragment.IntervalMin, h.config.Fragment.IntervalMax).AtDebug().WriteToLog(session.ExportIDToError(ctx))
+				writer = buf.NewWriter(&FragmentWriter{
+					fragment: h.config.Fragment,
+					writer:   conn,
+				})
+			} else {
+				writer = buf.NewWriter(conn)
+			}
 		} else {
 			writer = NewPacketWriter(conn, h, ctx, UDPOverride)
 		}
@@ -185,6 +209,10 @@ func (h *Handler) Process(ctx context.Context, link *transport.Link, dialer inte
 		return nil
 	}
 
+	if newCtx != nil {
+		ctx = newCtx
+	}
+
 	if err := task.Run(ctx, requestDone, task.OnSuccess(responseDone, task.Close(output))); err != nil {
 		return newError("connection ends").Base(err)
 	}
@@ -194,7 +222,7 @@ func (h *Handler) Process(ctx context.Context, link *transport.Link, dialer inte
 
 func NewPacketReader(conn net.Conn, UDPOverride net.Destination) buf.Reader {
 	iConn := conn
-	statConn, ok := iConn.(*internet.StatCouterConnection)
+	statConn, ok := iConn.(*stat.CounterConnection)
 	if ok {
 		iConn = statConn.Connection
 	}
@@ -238,7 +266,7 @@ func (r *PacketReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
 
 func NewPacketWriter(conn net.Conn, h *Handler, ctx context.Context, UDPOverride net.Destination) buf.Writer {
 	iConn := conn
-	statConn, ok := iConn.(*internet.StatCouterConnection)
+	statConn, ok := iConn.(*stat.CounterConnection)
 	if ok {
 		iConn = statConn.Connection
 	}
@@ -307,4 +335,77 @@ func (w *PacketWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
 		}
 	}
 	return nil
+}
+
+type FragmentWriter struct {
+	fragment *Fragment
+	writer   io.Writer
+	count    uint64
+}
+
+func (f *FragmentWriter) Write(b []byte) (int, error) {
+	f.count++
+
+	if f.fragment.PacketsFrom == 0 && f.fragment.PacketsTo == 1 {
+		if f.count != 1 || len(b) <= 5 || b[0] != 22 {
+			return f.writer.Write(b)
+		}
+		recordLen := 5 + ((int(b[3]) << 8) | int(b[4]))
+		data := b[5:recordLen]
+		buf := make([]byte, 1024)
+		for from := 0; ; {
+			to := from + int(randBetween(int64(f.fragment.LengthMin), int64(f.fragment.LengthMax)))
+			if to > len(data) {
+				to = len(data)
+			}
+			copy(buf[:3], b)
+			copy(buf[5:], data[from:to])
+			l := to - from
+			from = to
+			buf[3] = byte(l >> 8)
+			buf[4] = byte(l)
+			_, err := f.writer.Write(buf[:5+l])
+			time.Sleep(time.Duration(randBetween(int64(f.fragment.IntervalMin), int64(f.fragment.IntervalMax))) * time.Millisecond)
+			if err != nil {
+				return 0, err
+			}
+			if from == len(data) {
+				if len(b) > recordLen {
+					n, err := f.writer.Write(b[recordLen:])
+					if err != nil {
+						return recordLen + n, err
+					}
+				}
+				return len(b), nil
+			}
+		}
+	}
+
+	if f.fragment.PacketsFrom != 0 && (f.count < f.fragment.PacketsFrom || f.count > f.fragment.PacketsTo) {
+		return f.writer.Write(b)
+	}
+	for from := 0; ; {
+		to := from + int(randBetween(int64(f.fragment.LengthMin), int64(f.fragment.LengthMax)))
+		if to > len(b) {
+			to = len(b)
+		}
+		n, err := f.writer.Write(b[from:to])
+		from += n
+		time.Sleep(time.Duration(randBetween(int64(f.fragment.IntervalMin), int64(f.fragment.IntervalMax))) * time.Millisecond)
+		if err != nil {
+			return from, err
+		}
+		if from >= len(b) {
+			return from, nil
+		}
+	}
+}
+
+// stolen from github.com/xtls/xray-core/transport/internet/reality
+func randBetween(left int64, right int64) int64 {
+	if left == right {
+		return left
+	}
+	bigInt, _ := rand.Int(rand.Reader, big.NewInt(right-left))
+	return left + bigInt.Int64()
 }

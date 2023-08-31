@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/xtls/xray-core/app/router"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/platform"
 	"github.com/xtls/xray-core/common/platform/filesystem"
+	"google.golang.org/protobuf/proto"
 )
 
 func init() {
@@ -53,7 +53,7 @@ func TestGeoIPMatcherContainer(t *testing.T) {
 }
 
 func TestGeoIPMatcher(t *testing.T) {
-	cidrList := router.CIDRList{
+	cidrList := []*router.CIDR{
 		{Ip: []byte{0, 0, 0, 0}, Prefix: 8},
 		{Ip: []byte{10, 0, 0, 0}, Prefix: 8},
 		{Ip: []byte{100, 64, 0, 0}, Prefix: 10},
@@ -88,7 +88,8 @@ func TestGeoIPMatcher(t *testing.T) {
 		{
 			Input:  "192.0.1.0",
 			Output: false,
-		}, {
+		},
+		{
 			Input:  "0.1.0.0",
 			Output: true,
 		},
@@ -111,6 +112,74 @@ func TestGeoIPMatcher(t *testing.T) {
 		{
 			Input:  "91.108.255.254",
 			Output: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		ip := net.ParseAddress(testCase.Input).IP()
+		actual := matcher.Match(ip)
+		if actual != testCase.Output {
+			t.Error("expect input", testCase.Input, "to be", testCase.Output, ", but actually", actual)
+		}
+	}
+}
+
+func TestGeoIPMatcherRegression(t *testing.T) {
+	cidrList := []*router.CIDR{
+		{Ip: []byte{98, 108, 20, 0}, Prefix: 22},
+		{Ip: []byte{98, 108, 20, 0}, Prefix: 23},
+	}
+
+	matcher := &router.GeoIPMatcher{}
+	common.Must(matcher.Init(cidrList))
+
+	testCases := []struct {
+		Input  string
+		Output bool
+	}{
+		{
+			Input:  "98.108.22.11",
+			Output: true,
+		},
+		{
+			Input:  "98.108.25.0",
+			Output: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		ip := net.ParseAddress(testCase.Input).IP()
+		actual := matcher.Match(ip)
+		if actual != testCase.Output {
+			t.Error("expect input", testCase.Input, "to be", testCase.Output, ", but actually", actual)
+		}
+	}
+}
+
+func TestGeoIPReverseMatcher(t *testing.T) {
+	cidrList := []*router.CIDR{
+		{Ip: []byte{8, 8, 8, 8}, Prefix: 32},
+		{Ip: []byte{91, 108, 4, 0}, Prefix: 16},
+	}
+	matcher := &router.GeoIPMatcher{}
+	matcher.SetReverseMatch(true) // Reverse match
+	common.Must(matcher.Init(cidrList))
+
+	testCases := []struct {
+		Input  string
+		Output bool
+	}{
+		{
+			Input:  "8.8.8.8",
+			Output: false,
+		},
+		{
+			Input:  "2001:cdba::3257:9652",
+			Output: true,
+		},
+		{
+			Input:  "91.108.255.254",
+			Output: false,
 		},
 	}
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/xtls/xray-core/common/mux"
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/session"
@@ -12,6 +11,7 @@ import (
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/transport"
 	"github.com/xtls/xray-core/transport/pipe"
+	"google.golang.org/protobuf/proto"
 )
 
 // Bridge is a component in reverse proxy, that relays connections from Portal to local address.
@@ -146,7 +146,7 @@ func (w *BridgeWorker) Connections() uint32 {
 	return w.worker.ActiveConnections()
 }
 
-func (w *BridgeWorker) handleInternalConn(link transport.Link) {
+func (w *BridgeWorker) handleInternalConn(link *transport.Link) {
 	go func() {
 		reader := link.Reader
 		for {
@@ -180,7 +180,7 @@ func (w *BridgeWorker) Dispatch(ctx context.Context, dest net.Destination) (*tra
 	uplinkReader, uplinkWriter := pipe.New(opt...)
 	downlinkReader, downlinkWriter := pipe.New(opt...)
 
-	w.handleInternalConn(transport.Link{
+	w.handleInternalConn(&transport.Link{
 		Reader: downlinkReader,
 		Writer: uplinkWriter,
 	})
@@ -189,4 +189,17 @@ func (w *BridgeWorker) Dispatch(ctx context.Context, dest net.Destination) (*tra
 		Reader: uplinkReader,
 		Writer: downlinkWriter,
 	}, nil
+}
+
+func (w *BridgeWorker) DispatchLink(ctx context.Context, dest net.Destination, link *transport.Link) error {
+	if !isInternalDomain(dest) {
+		ctx = session.ContextWithInbound(ctx, &session.Inbound{
+			Tag: w.tag,
+		})
+		return w.dispatcher.DispatchLink(ctx, dest, link)
+	}
+
+	w.handleInternalConn(link)
+
+	return nil
 }
