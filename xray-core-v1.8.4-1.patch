@@ -109,18 +109,9 @@ index 71abf74..5dcd6b2 100644
  github.com/sagernet/sing v0.2.9 h1:3wsTz+JG5Wzy65eZnh6AuCrD2QqcRF6Iq6f7ttmJsAo=
  github.com/sagernet/sing v0.2.9/go.mod h1:Ta8nHnDLAwqySzKhGoKk4ZIB+vJ3GTKj7UPrWYvM+4w=
 diff --git a/infra/conf/transport_internet.go b/infra/conf/transport_internet.go
-index 55cc8c2..9ac0880 100644
+index 55cc8c2..9557477 100644
 --- a/infra/conf/transport_internet.go
 +++ b/infra/conf/transport_internet.go
-@@ -25,7 +25,7 @@ import (
- 	"github.com/xtls/xray-core/transport/internet/tcp"
- 	"github.com/xtls/xray-core/transport/internet/tls"
- 	"github.com/xtls/xray-core/transport/internet/websocket"
--	"google.golang.org/protobuf/proto"
-+	"google.golang.org/protobuf/proto"								   
- )
- 
- var (
 @@ -148,6 +148,7 @@ type WebSocketConfig struct {
  	Path                string            `json:"path"`
  	Headers             map[string]string `json:"headers"`
