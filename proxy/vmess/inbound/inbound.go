@@ -14,7 +14,6 @@ import (
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/log"
 	"github.com/xtls/xray-core/common/net"
-	"github.com/xtls/xray-core/common/platform"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/common/signal"
@@ -26,25 +25,19 @@ import (
 	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/proxy/vmess"
 	"github.com/xtls/xray-core/proxy/vmess/encoding"
-	"github.com/xtls/xray-core/transport/internet"
-)
-
-var (
-	aeadForced = false
+	"github.com/xtls/xray-core/transport/internet/stat"
 )
 
 type userByEmail struct {
 	sync.Mutex
-	cache           map[string]*protocol.MemoryUser
-	defaultLevel    uint32
-	defaultAlterIDs uint16
+	cache        map[string]*protocol.MemoryUser
+	defaultLevel uint32
 }
 
 func newUserByEmail(config *DefaultConfig) *userByEmail {
 	return &userByEmail{
-		cache:           make(map[string]*protocol.MemoryUser),
-		defaultLevel:    config.Level,
-		defaultAlterIDs: uint16(config.AlterId),
+		cache:        make(map[string]*protocol.MemoryUser),
+		defaultLevel: config.Level,
 	}
 }
 
@@ -75,8 +68,7 @@ func (v *userByEmail) Get(email string) (*protocol.MemoryUser, bool) {
 	if !found {
 		id := uuid.New()
 		rawAccount := &vmess.Account{
-			Id:      id.String(),
-			AlterId: uint32(v.defaultAlterIDs),
+			Id: id.String(),
 		}
 		account, err := rawAccount.AsAccount()
 		common.Must(err)
@@ -111,7 +103,6 @@ type Handler struct {
 	usersByEmail          *userByEmail
 	detours               *DetourConfig
 	sessionHistory        *encoding.SessionHistory
-	secure                bool
 }
 
 // New creates a new VMess inbound handler.
@@ -120,11 +111,10 @@ func New(ctx context.Context, config *Config) (*Handler, error) {
 	handler := &Handler{
 		policyManager:         v.GetFeature(policy.ManagerType()).(policy.Manager),
 		inboundHandlerManager: v.GetFeature(feature_inbound.ManagerType()).(feature_inbound.Manager),
-		clients:               vmess.NewTimedUserValidator(protocol.DefaultIDHash),
+		clients:               vmess.NewTimedUserValidator(),
 		detours:               config.Detour,
 		usersByEmail:          newUserByEmail(config.GetDefaultValue()),
 		sessionHistory:        encoding.NewSessionHistory(),
-		secure:                config.SecureEncryptionOnly,
 	}
 
 	for _, user := range config.User {
@@ -144,7 +134,6 @@ func New(ctx context.Context, config *Config) (*Handler, error) {
 // Close implements common.Closable.
 func (h *Handler) Close() error {
 	return errors.Combine(
-		h.clients.Close(),
 		h.sessionHistory.Close(),
 		common.Close(h.usersByEmail))
 }
@@ -183,8 +172,10 @@ func (h *Handler) RemoveUser(ctx context.Context, email string) error {
 func transferResponse(timer signal.ActivityUpdater, session *encoding.ServerSession, request *protocol.RequestHeader, response *protocol.ResponseHeader, input buf.Reader, output *buf.BufferedWriter) error {
 	session.EncodeResponseHeader(response, output)
 
-	bodyWriter := session.EncodeResponseBody(request, output)
-
+	bodyWriter, err := session.EncodeResponseBody(request, output)
+	if err != nil {
+		return newError("failed to start decoding response").Base(err)
+	}
 	{
 		// Optimize for small response packet
 		data, err := input.ReadMultiBuffer()
@@ -205,7 +196,9 @@ func transferResponse(timer signal.ActivityUpdater, session *encoding.ServerSess
 		return err
 	}
 
-	if request.Option.Has(protocol.RequestOptionChunkStream) {
+	account := request.User.Account.(*vmess.MemoryAccount)
+
+	if request.Option.Has(protocol.RequestOptionChunkStream) && !account.NoTerminationSignal {
 		if err := bodyWriter.WriteMultiBuffer(buf.MultiBuffer{}); err != nil {
 			return err
 		}
@@ -214,19 +207,15 @@ func transferResponse(timer signal.ActivityUpdater, session *encoding.ServerSess
 	return nil
 }
 
-func isInsecureEncryption(s protocol.SecurityType) bool {
-	return s == protocol.SecurityType_NONE || s == protocol.SecurityType_LEGACY || s == protocol.SecurityType_UNKNOWN
-}
-
 // Process implements proxy.Inbound.Process().
-func (h *Handler) Process(ctx context.Context, network net.Network, connection internet.Connection, dispatcher routing.Dispatcher) error {
+func (h *Handler) Process(ctx context.Context, network net.Network, connection stat.Connection, dispatcher routing.Dispatcher) error {
 	sessionPolicy := h.policyManager.ForLevel(0)
 	if err := connection.SetReadDeadline(time.Now().Add(sessionPolicy.Timeouts.Handshake)); err != nil {
 		return newError("unable to set read deadline").Base(err).AtWarning()
 	}
 
 	iConn := connection
-	if statConn, ok := iConn.(*internet.StatCouterConnection); ok {
+	if statConn, ok := iConn.(*stat.CounterConnection); ok {
 		iConn = statConn.Connection
 	}
 	_, isDrain := iConn.(*net.TCPConn)
@@ -236,7 +225,6 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 
 	reader := &buf.BufferedReader{Reader: buf.NewReader(connection)}
 	svrSession := encoding.NewServerSession(h.clients, h.sessionHistory)
-	svrSession.SetAEADForced(aeadForced)
 	request, err := svrSession.DecodeRequestHeader(reader, isDrain)
 	if err != nil {
 		if errors.Cause(err) != io.EOF {
@@ -249,17 +237,6 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 			err = newError("invalid request from ", connection.RemoteAddr()).Base(err).AtInfo()
 		}
 		return err
-	}
-
-	if h.secure && isInsecureEncryption(request.Security) {
-		log.Record(&log.AccessMessage{
-			From:   connection.RemoteAddr(),
-			To:     "",
-			Status: log.AccessRejected,
-			Reason: "Insecure encryption",
-			Email:  request.User.Email,
-		})
-		return newError("client is using insecure encryption: ", request.Security)
 	}
 
 	if request.Command != protocol.RequestCommandMux {
@@ -279,9 +256,8 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 	}
 
 	inbound := session.InboundFromContext(ctx)
-	if inbound == nil {
-		panic("no inbound metadata")
-	}
+	inbound.Name = "vmess"
+	inbound.SetCanSpliceCopy(3)
 	inbound.User = request.User
 
 	sessionPolicy = h.policyManager.ForLevel(request.User.Level)
@@ -298,7 +274,10 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 	requestDone := func() error {
 		defer timer.SetTimeout(sessionPolicy.Timeouts.DownlinkOnly)
 
-		bodyReader := svrSession.DecodeRequestBody(request, reader)
+		bodyReader, err := svrSession.DecodeRequestBody(request, reader)
+		if err != nil {
+			return newError("failed to start decoding").Base(err)
+		}
 		if err := buf.Copy(bodyReader, link.Writer, buf.UpdateActivity(timer)); err != nil {
 			return newError("failed to transfer request").Base(err)
 		}
@@ -317,7 +296,7 @@ func (h *Handler) Process(ctx context.Context, network net.Network, connection i
 		return transferResponse(timer, svrSession, request, response, link.Reader, writer)
 	}
 
-	var requestDonePost = task.OnSuccess(requestDone, task.Close(link.Writer))
+	requestDonePost := task.OnSuccess(requestDone, task.Close(link.Writer))
 	if err := task.Run(ctx, requestDonePost, responseDone); err != nil {
 		common.Interrupt(link.Reader)
 		common.Interrupt(link.Writer)
@@ -352,7 +331,6 @@ func (h *Handler) generateCommand(ctx context.Context, request *protocol.Request
 				return &protocol.CommandSwitchAccount{
 					Port:     port,
 					ID:       account.ID.UUID(),
-					AlterIds: uint16(len(account.AlterIDs)),
 					Level:    user.Level,
 					ValidMin: byte(availableMin),
 				}
@@ -367,9 +345,4 @@ func init() {
 	common.Must(common.RegisterConfig((*Config)(nil), func(ctx context.Context, config interface{}) (interface{}, error) {
 		return New(ctx, config.(*Config))
 	}))
-
-	const defaultFlagValue = "NOT_DEFINED_AT_ALL"
-
-	isAeadForced := platform.NewEnvFlag("xray.vmess.aead.forced").GetValue(func() string { return defaultFlagValue })
-	aeadForced = (isAeadForced == "true")
 }
