@@ -1,6 +1,6 @@
-module github.com/xtls/xray-core
+module github.com/rosebe/xray-core
 
-go 1.21.4
+go 1.21
 
 require (
 	github.com/ghodss/yaml v1.0.1-0.20220118164431-d8423dcdf344
@@ -61,3 +61,5 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/gorilla/websocket v1.5.1 => github.com/rosebe/websocket_shioeri v0.0.0-20230904033755-c74d97f9d5a3
