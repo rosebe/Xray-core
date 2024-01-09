@@ -1,7 +1,12 @@
 package router
 
 import (
+	"context"
+	reflect "reflect"
+	sync "sync"
+
 	"github.com/xtls/xray-core/common/dice"
+	"github.com/xtls/xray-core/features/extension"
 	"github.com/xtls/xray-core/features/outbound"
 )
 
@@ -9,8 +14,7 @@ type BalancingStrategy interface {
 	PickOutbound([]string) string
 }
 
-type RandomStrategy struct {
-}
+type RandomStrategy struct{}
 
 func (s *RandomStrategy) PickOutbound(tags []string) string {
 	n := len(tags)
@@ -19,6 +23,39 @@ func (s *RandomStrategy) PickOutbound(tags []string) string {
 	}
 
 	return tags[dice.Roll(n)]
+}
+
+type RoundRobinStrategy struct {
+	mu         sync.Mutex
+	tags       []string
+	index      int
+	roundRobin *RoundRobinStrategy
+}
+
+func NewRoundRobin(tags []string) *RoundRobinStrategy {
+	return &RoundRobinStrategy{
+		tags: tags,
+	}
+}
+func (r *RoundRobinStrategy) NextTag() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	tags := r.tags[r.index]
+	r.index = (r.index + 1) % len(r.tags)
+	return tags
+}
+
+func (s *RoundRobinStrategy) PickOutbound(tags []string) string {
+	if len(tags) == 0 {
+		panic("0 tags")
+	}
+	if s.roundRobin == nil || !reflect.DeepEqual(s.roundRobin.tags, tags) {
+		s.roundRobin = NewRoundRobin(tags)
+	}
+	tag := s.roundRobin.NextTag()
+
+	return tag
 }
 
 type Balancer struct {
@@ -41,4 +78,10 @@ func (b *Balancer) PickOutbound() (string, error) {
 		return "", newError("balancing strategy returns empty tag")
 	}
 	return tag, nil
+}
+
+func (b *Balancer) InjectContext(ctx context.Context) {
+	if contextReceiver, ok := b.strategy.(extension.ContextReceiver); ok {
+		contextReceiver.InjectContext(ctx)
+	}
 }
