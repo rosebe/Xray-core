@@ -108,12 +108,12 @@ func (c *UConn) WebsocketHandshakeContext(ctx context.Context) error {
 	for _, extension := range c.Extensions {
 		if alpn, ok := extension.(*utls.ALPNExtension); ok {
 			hasALPNExtension = true
-			alpn.AlpnProtocols = []string{"http/1.1"}
+			alpn.AlpnProtocols = []string{"h2","http/1.1"}
 			break
 		}
 	}
 	if !hasALPNExtension { // Append extension if doesn't exists
-		c.Extensions = append(c.Extensions, &utls.ALPNExtension{AlpnProtocols: []string{"http/1.1"}})
+		c.Extensions = append(c.Extensions, &utls.ALPNExtension{AlpnProtocols: []string{"h2","http/1.1"}})
 	}
 	// Rebuild the client hello and do the handshake
 	if err := c.BuildHandshakeState(); err != nil {
