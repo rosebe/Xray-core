@@ -26,6 +26,11 @@ func (r *Reader) Interrupt() {
 	r.pipe.Interrupt()
 }
 
+// Close implements io.Closer. After the pipe is closed, writing to the pipe will return io.ErrClosedPipe, while reading will return io.EOF.
+func (r *Reader) Close() error {
+	return r.pipe.Close()
+}
+
 // ReturnAnError makes ReadMultiBuffer return an error, only once.
 func (r *Reader) ReturnAnError(err error) {
 	r.pipe.errChan <- err
