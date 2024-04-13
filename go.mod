@@ -11,7 +11,7 @@ require (
 	github.com/pelletier/go-toml v1.9.5
 	github.com/pires/go-proxyproto v0.7.0
 	github.com/quic-go/quic-go v0.42.0
-	github.com/refraction-networking/utls v1.6.3
+	github.com/refraction-networking/utls v1.6.4
 	github.com/sagernet/sing v0.3.8
 	github.com/sagernet/sing-shadowsocks v0.2.6
 	github.com/seiflotfy/cuckoofilter v0.0.0-20220411075957-e3b120b3f5fb
@@ -25,7 +25,7 @@ require (
 	golang.org/x/sync v0.7.0
 	golang.org/x/sys v0.19.0
 	golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
-	google.golang.org/grpc v1.63.0
+	google.golang.org/grpc v1.63.2
 	google.golang.org/protobuf v1.33.0
 	gvisor.dev/gvisor v0.0.0-20231104011432-48a6d7d5bd0b
 	h12.io/socks v1.0.3
