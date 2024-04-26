@@ -38,24 +38,42 @@ func ExportIDToError(ctx context.Context) errors.ExportOption {
 type Inbound struct {
 	// Source address of the inbound connection.
 	Source net.Destination
-	// Getaway address.
+	// Gateway address.
 	Gateway net.Destination
 	// Tag of the inbound proxy that handles the connection.
 	Tag string
-	// User is the user that authencates for the inbound. May be nil if the protocol allows anounymous traffic.
+	// Name of the inbound proxy that handles the connection.
+	Name string
+	// User is the user that authenticates for the inbound. May be nil if the protocol allows anonymous traffic.
 	User *protocol.MemoryUser
 	// Conn is actually internet.Connection. May be nil.
 	Conn net.Conn
 	// Timer of the inbound buf copier. May be nil.
 	Timer *signal.ActivityTimer
+	// CanSpliceCopy is a property for this connection, set by both inbound and outbound
+	// 1 = can, 2 = after processing protocol info should be able to, 3 = cannot
+	CanSpliceCopy int
+}
+
+func(i *Inbound) SetCanSpliceCopy(canSpliceCopy int) int {
+	if canSpliceCopy > i.CanSpliceCopy {
+		i.CanSpliceCopy = canSpliceCopy
+	}
+	return i.CanSpliceCopy
 }
 
 // Outbound is the metadata of an outbound connection.
 type Outbound struct {
 	// Target address of the outbound connection.
-	Target net.Destination
+	OriginalTarget net.Destination
+	Target         net.Destination
+	RouteTarget    net.Destination
 	// Gateway address
 	Gateway net.Address
+	// Name of the outbound proxy that handles the connection.
+	Name string
+	// Conn is actually internet.Connection. May be nil. It is currently nil for outbound with proxySettings 
+	Conn net.Conn
 }
 
 // SniffingRequest controls the behavior of content sniffing.
@@ -64,6 +82,7 @@ type SniffingRequest struct {
 	OverrideDestinationForProtocol []string
 	Enabled                        bool
 	MetadataOnly                   bool
+	RouteOnly                      bool
 }
 
 // Content is the metadata of the connection content.
@@ -75,7 +94,7 @@ type Content struct {
 
 	Attributes map[string]string
 
-	SkipRoutePick bool
+	SkipDNSResolve bool
 }
 
 // Sockopt is the settings for socket connection.
@@ -84,7 +103,7 @@ type Sockopt struct {
 	Mark int32
 }
 
-// SetAttribute attachs additional string attributes to content.
+// SetAttribute attaches additional string attributes to content.
 func (c *Content) SetAttribute(name string, value string) {
 	if c.Attributes == nil {
 		c.Attributes = make(map[string]string)

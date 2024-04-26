@@ -1,52 +1,17 @@
 package router
 
 import (
+	"regexp"
+	"strings"
+
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/features/outbound"
 	"github.com/xtls/xray-core/features/routing"
 )
 
-// CIDRList is an alias of []*CIDR to provide sort.Interface.
-type CIDRList []*CIDR
-
-// Len implements sort.Interface.
-func (l *CIDRList) Len() int {
-	return len(*l)
-}
-
-// Less implements sort.Interface.
-func (l *CIDRList) Less(i int, j int) bool {
-	ci := (*l)[i]
-	cj := (*l)[j]
-
-	if len(ci.Ip) < len(cj.Ip) {
-		return true
-	}
-
-	if len(ci.Ip) > len(cj.Ip) {
-		return false
-	}
-
-	for k := 0; k < len(ci.Ip); k++ {
-		if ci.Ip[k] < cj.Ip[k] {
-			return true
-		}
-
-		if ci.Ip[k] > cj.Ip[k] {
-			return false
-		}
-	}
-
-	return ci.Prefix < cj.Prefix
-}
-
-// Swap implements sort.Interface.
-func (l *CIDRList) Swap(i int, j int) {
-	(*l)[i], (*l)[j] = (*l)[j], (*l)[i]
-}
-
 type Rule struct {
 	Tag       string
+	RuleTag   string
 	Balancer  *Balancer
 	Condition Condition
 }
@@ -84,7 +49,6 @@ func (rr *RoutingRule) BuildCondition() (Condition, error) {
 			newError("MphDomainMatcher is enabled for ", len(rr.Domain), " domain rule(s)").AtDebug().WriteToLog()
 			conds.Add(matcher)
 		}
-
 	}
 
 	if len(rr.UserEmail) > 0 {
@@ -144,11 +108,11 @@ func (rr *RoutingRule) BuildCondition() (Condition, error) {
 	}
 
 	if len(rr.Attributes) > 0 {
-		cond, err := NewAttributeMatcher(rr.Attributes)
-		if err != nil {
-			return nil, err
+		configuredKeys := make(map[string]*regexp.Regexp)
+		for key, value := range rr.Attributes {
+			configuredKeys[strings.ToLower(key)] = regexp.MustCompile(value)
 		}
-		conds.Add(cond)
+		conds.Add(&AttributeMatcher{configuredKeys})
 	}
 
 	if conds.Len() == 0 {
@@ -158,10 +122,49 @@ func (rr *RoutingRule) BuildCondition() (Condition, error) {
 	return conds, nil
 }
 
-func (br *BalancingRule) Build(ohm outbound.Manager) (*Balancer, error) {
-	return &Balancer{
-		selectors: br.OutboundSelector,
-		strategy:  &RandomStrategy{},
-		ohm:       ohm,
-	}, nil
+// Build builds the balancing rule
+func (br *BalancingRule) Build(ohm outbound.Manager, dispatcher routing.Dispatcher) (*Balancer, error) {
+	switch strings.ToLower(br.Strategy) {
+	case "leastping":
+		return &Balancer{
+			selectors:   br.OutboundSelector,
+			strategy:    &LeastPingStrategy{},
+			fallbackTag: br.FallbackTag,
+			ohm:         ohm,
+		}, nil
+	case "roundrobin":
+		return &Balancer{
+			selectors:   br.OutboundSelector,
+			strategy:    &RoundRobinStrategy{},
+			fallbackTag: br.FallbackTag,
+			ohm:         ohm,
+		}, nil
+	case "leastload":
+		i, err := br.StrategySettings.GetInstance()
+		if err != nil {
+			return nil, err
+		}
+		s, ok := i.(*StrategyLeastLoadConfig)
+		if !ok {
+			return nil, newError("not a StrategyLeastLoadConfig").AtError()
+		}
+		leastLoadStrategy := NewLeastLoadStrategy(s)
+		return &Balancer{
+			selectors:   br.OutboundSelector,
+			ohm:         ohm,
+			fallbackTag: br.FallbackTag,
+			strategy:    leastLoadStrategy,
+		}, nil
+	case "random":
+		fallthrough
+	case "":
+		return &Balancer{
+			selectors:   br.OutboundSelector,
+			ohm:         ohm,
+			fallbackTag: br.FallbackTag,
+			strategy:    &RandomStrategy{},
+		}, nil
+	default:
+		return nil, newError("unrecognized balancer type")
+	}
 }

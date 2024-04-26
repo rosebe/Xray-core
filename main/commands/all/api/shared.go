@@ -3,10 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,11 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/protobuf/proto"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/main/commands/base"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 type serviceHandler func(ctx context.Context, conn *grpc.ClientConn, cmd *base.Command, args []string) string
@@ -26,6 +26,7 @@ type serviceHandler func(ctx context.Context, conn *grpc.ClientConn, cmd *base.C
 var (
 	apiServerAddrPtr string
 	apiTimeout       int
+	apiJSON          bool
 )
 
 func setSharedFlags(cmd *base.Command) {
@@ -33,11 +34,12 @@ func setSharedFlags(cmd *base.Command) {
 	cmd.Flag.StringVar(&apiServerAddrPtr, "server", "127.0.0.1:8080", "")
 	cmd.Flag.IntVar(&apiTimeout, "t", 3, "")
 	cmd.Flag.IntVar(&apiTimeout, "timeout", 3, "")
+	cmd.Flag.BoolVar(&apiJSON, "json", false, "")
 }
 
 func dialAPIServer() (conn *grpc.ClientConn, ctx context.Context, close func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(apiTimeout)*time.Second)
-	conn, err := grpc.DialContext(ctx, apiServerAddrPtr, grpc.WithInsecure(), grpc.WithBlock())
+	conn, err := grpc.DialContext(ctx, apiServerAddrPtr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
 	if err != nil {
 		base.Fatalf("failed to dial %s", apiServerAddrPtr)
 	}
@@ -56,10 +58,10 @@ func loadArg(arg string) (out io.Reader, err error) {
 		data, err = fetchHTTPContent(arg)
 
 	case arg == "stdin:":
-		data, err = ioutil.ReadAll(os.Stdin)
+		data, err = io.ReadAll(os.Stdin)
 
 	default:
-		data, err = ioutil.ReadFile(arg)
+		data, err = os.ReadFile(arg)
 	}
 
 	if err != nil {
@@ -105,25 +107,20 @@ func fetchHTTPContent(target string) ([]byte, error) {
 	return content, nil
 }
 
-func showResponese(m proto.Message) {
+func protoToJSONString(m proto.Message, prefix, indent string) (string, error) {
+	return strings.TrimSpace(protojson.MarshalOptions{Indent: indent}.Format(m)), nil
+}
+
+func showJSONResponse(m proto.Message) {
 	if isNil(m) {
 		return
 	}
-	b := new(strings.Builder)
-	e := json.NewEncoder(b)
-	e.SetIndent("", "    ")
-	e.SetEscapeHTML(false)
-	err := e.Encode(m)
-	msg := ""
+	output, err := protoToJSONString(m, "", "    ")
 	if err != nil {
-		msg = fmt.Sprintf("error: %s\n\n%v", err, m)
-	} else {
-		msg = strings.TrimSpace(b.String())
+		fmt.Fprintf(os.Stdout, "%v\n", m)
+		base.Fatalf("error encode json: %s", err)
 	}
-	if msg == "" {
-		return
-	}
-	fmt.Println(msg)
+	fmt.Println(output)
 }
 
 func isNil(i interface{}) bool {

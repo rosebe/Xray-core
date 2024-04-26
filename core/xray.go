@@ -2,11 +2,11 @@ package core
 
 import (
 	"context"
-	"os"
 	"reflect"
 	"sync"
 
 	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/platform"
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/features"
 	"github.com/xtls/xray-core/features/dns"
@@ -159,7 +159,7 @@ func RequireFeatures(ctx context.Context, callback interface{}) error {
 // The instance is not started at this point.
 // To ensure Xray instance works properly, the config must contain one Dispatcher, one InboundHandlerManager and one OutboundHandlerManager. Other features are optional.
 func New(config *Config) (*Instance, error) {
-	var server = &Instance{ctx: context.Background()}
+	server := &Instance{ctx: context.Background()}
 
 	done, err := initInstanceWithConfig(config, server)
 	if done {
@@ -170,7 +170,7 @@ func New(config *Config) (*Instance, error) {
 }
 
 func NewWithContext(ctx context.Context, config *Config) (*Instance, error) {
-	var server = &Instance{ctx: ctx}
+	server := &Instance{ctx: ctx}
 
 	done, err := initInstanceWithConfig(config, server)
 	if done {
@@ -181,7 +181,8 @@ func NewWithContext(ctx context.Context, config *Config) (*Instance, error) {
 }
 
 func initInstanceWithConfig(config *Config, server *Instance) (bool, error) {
-	server.ctx = context.WithValue(server.ctx, "cone", os.Getenv("XRAY_CONE_DISABLED") != "true")
+	server.ctx = context.WithValue(server.ctx, "cone", 
+		platform.NewEnvFlag(platform.UseCone).GetValue(func() string { return "" }) != "true")
 
 	if config.Transport != nil {
 		features.PrintDeprecatedFeatureWarning("global transport settings")

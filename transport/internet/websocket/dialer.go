@@ -1,37 +1,46 @@
 package websocket
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/base64"
-	"fmt"
 	"io"
+	gonet "net"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/gorilla/websocket"
-
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/net"
+	"github.com/xtls/xray-core/common/platform"
 	"github.com/xtls/xray-core/common/session"
+	"github.com/xtls/xray-core/common/uuid"
 	"github.com/xtls/xray-core/transport/internet"
+	"github.com/xtls/xray-core/transport/internet/stat"
 	"github.com/xtls/xray-core/transport/internet/tls"
 )
 
 //go:embed dialer.html
 var webpage []byte
+
 var conns chan *websocket.Conn
 
 func init() {
-	if addr := os.Getenv("XRAY_BROWSER_DIALER"); addr != "" {
+	addr := platform.NewEnvFlag(platform.BrowserDialerAddress).GetValue(func() string { return "" })
+	if addr != "" {
+		token := uuid.New()
+		csrfToken := token.String()
+		webpage = bytes.ReplaceAll(webpage, []byte("csrfToken"), []byte(csrfToken))
 		conns = make(chan *websocket.Conn, 256)
 		go http.ListenAndServe(addr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/websocket" {
-				if conn, err := upgrader.Upgrade(w, r, nil); err == nil {
-					conns <- conn
-				} else {
-					fmt.Println("unexpected error")
+				if r.URL.Query().Get("token") == csrfToken {
+					if conn, err := upgrader.Upgrade(w, r, nil); err == nil {
+						conns <- conn
+					} else {
+						newError("Browser dialer http upgrade unexpected error").AtError().WriteToLog()
+					}
 				}
 			} else {
 				w.Write(webpage)
@@ -41,7 +50,7 @@ func init() {
 }
 
 // Dial dials a WebSocket connection to the given destination.
-func Dial(ctx context.Context, dest net.Destination, streamSettings *internet.MemoryStreamConfig) (internet.Connection, error) {
+func Dial(ctx context.Context, dest net.Destination, streamSettings *internet.MemoryStreamConfig) (stat.Connection, error) {
 	newError("creating connection to ", dest).WriteToLog(session.ExportIDToError(ctx))
 	var conn net.Conn
 	if streamSettings.ProtocolSettings.(*Config).Ed > 0 {
@@ -59,7 +68,7 @@ func Dial(ctx context.Context, dest net.Destination, streamSettings *internet.Me
 			return nil, newError("failed to dial WebSocket").Base(err)
 		}
 	}
-	return internet.Connection(conn), nil
+	return stat.Connection(conn), nil
 }
 
 func init() {
@@ -82,7 +91,31 @@ func dialWebSocket(ctx context.Context, dest net.Destination, streamSettings *in
 
 	if config := tls.ConfigFromStreamSettings(streamSettings); config != nil {
 		protocol = "wss"
-		dialer.TLSClientConfig = config.GetTLSConfig(tls.WithDestination(dest), tls.WithNextProto("http/1.1"))
+		tlsConfig := config.GetTLSConfig(tls.WithDestination(dest), tls.WithNextProto("http/1.1"))
+		dialer.TLSClientConfig = tlsConfig
+		if fingerprint := tls.GetFingerprint(config.Fingerprint); fingerprint != nil {
+			dialer.NetDialTLSContext = func(_ context.Context, _, addr string) (gonet.Conn, error) {
+				// Like the NetDial in the dialer
+				pconn, err := internet.DialSystem(ctx, dest, streamSettings.SocketSettings)
+				if err != nil {
+					newError("failed to dial to " + addr).Base(err).AtError().WriteToLog()
+					return nil, err
+				}
+				// TLS and apply the handshake
+				cn := tls.UClient(pconn, tlsConfig, fingerprint).(*tls.UConn)
+				if err := cn.WebsocketHandshakeContext(ctx); err != nil {
+					newError("failed to dial to " + addr).Base(err).AtError().WriteToLog()
+					return nil, err
+				}
+				if !tlsConfig.InsecureSkipVerify {
+					if err := cn.VerifyHostname(tlsConfig.ServerName); err != nil {
+						newError("failed to dial to " + addr).Base(err).AtError().WriteToLog()
+						return nil, err
+					}
+				}
+				return cn, nil
+			}
+		}
 	}
 
 	host := dest.NetAddr()
@@ -117,10 +150,11 @@ func dialWebSocket(ctx context.Context, dest net.Destination, streamSettings *in
 
 	header := wsSettings.GetRequestHeader()
 	if ed != nil {
-		header.Set("Sec-WebSocket-Protocol", base64.StdEncoding.EncodeToString(ed))
+		// RawURLEncoding is support by both V2Ray/V2Fly and XRay.
+		header.Set("Sec-WebSocket-Protocol", base64.RawURLEncoding.EncodeToString(ed))
 	}
 
-	conn, resp, err := dialer.Dial(uri, header)
+	conn, resp, err := dialer.DialContext(ctx, uri, header)
 	if err != nil {
 		var reason string
 		if resp != nil {

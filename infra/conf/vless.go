@@ -2,11 +2,11 @@ package conf
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
-
-	"github.com/golang/protobuf/proto"
 
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/protocol"
@@ -15,6 +15,7 @@ import (
 	"github.com/xtls/xray-core/proxy/vless"
 	"github.com/xtls/xray-core/proxy/vless/inbound"
 	"github.com/xtls/xray-core/proxy/vless/outbound"
+	"google.golang.org/protobuf/proto"
 )
 
 type VLessInboundFallback struct {
@@ -54,9 +55,7 @@ func (c *VLessInboundConfig) Build() (proto.Message, error) {
 		account.Id = u.String()
 
 		switch account.Flow {
-		case "", "xtls-rprx-origin", "xtls-rprx-direct":
-		case "xtls-rprx-splice":
-			return nil, newError(`VLESS clients: inbound doesn't support "xtls-rprx-splice" in this version, please use "xtls-rprx-direct" instead`)
+		case "", vless.XRV:
 		default:
 			return nil, newError(`VLESS clients: "flow" doesn't support "` + account.Flow + `" in this version`)
 		}
@@ -106,22 +105,19 @@ func (c *VLessInboundConfig) Build() (proto.Message, error) {
 		if fb.Type == "" && fb.Dest != "" {
 			if fb.Dest == "serve-ws-none" {
 				fb.Type = "serve"
+			} else if filepath.IsAbs(fb.Dest) || fb.Dest[0] == '@' {
+				fb.Type = "unix"
+				if strings.HasPrefix(fb.Dest, "@@") && (runtime.GOOS == "linux" || runtime.GOOS == "android") {
+					fullAddr := make([]byte, len(syscall.RawSockaddrUnix{}.Path)) // may need padding to work with haproxy
+					copy(fullAddr, fb.Dest[1:])
+					fb.Dest = string(fullAddr)
+				}
 			} else {
-				switch fb.Dest[0] {
-				case '@', '/':
-					fb.Type = "unix"
-					if fb.Dest[0] == '@' && len(fb.Dest) > 1 && fb.Dest[1] == '@' && (runtime.GOOS == "linux" || runtime.GOOS == "android") {
-						fullAddr := make([]byte, len(syscall.RawSockaddrUnix{}.Path)) // may need padding to work with haproxy
-						copy(fullAddr, fb.Dest[1:])
-						fb.Dest = string(fullAddr)
-					}
-				default:
-					if _, err := strconv.Atoi(fb.Dest); err == nil {
-						fb.Dest = "127.0.0.1:" + fb.Dest
-					}
-					if _, _, err := net.SplitHostPort(fb.Dest); err == nil {
-						fb.Type = "tcp"
-					}
+				if _, err := strconv.Atoi(fb.Dest); err == nil {
+					fb.Dest = "127.0.0.1:" + fb.Dest
+				}
+				if _, _, err := net.SplitHostPort(fb.Dest); err == nil {
+					fb.Type = "tcp"
 				}
 			}
 		}
@@ -183,11 +179,7 @@ func (c *VLessOutboundConfig) Build() (proto.Message, error) {
 			account.Id = u.String()
 
 			switch account.Flow {
-			case "", "xtls-rprx-origin", "xtls-rprx-origin-udp443", "xtls-rprx-direct", "xtls-rprx-direct-udp443":
-			case "xtls-rprx-splice", "xtls-rprx-splice-udp443":
-				if runtime.GOOS != "linux" && runtime.GOOS != "android" {
-					return nil, newError(`VLESS users: "` + account.Flow + `" only support linux in this version`)
-				}
+			case "", vless.XRV, vless.XRV + "-udp443":
 			default:
 				return nil, newError(`VLESS users: "flow" doesn't support "` + account.Flow + `" in this version`)
 			}

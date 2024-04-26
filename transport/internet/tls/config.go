@@ -1,8 +1,11 @@
 package tls
 
 import (
+	"crypto/hmac"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -14,9 +17,7 @@ import (
 	"github.com/xtls/xray-core/transport/internet"
 )
 
-var (
-	globalSessionCache = tls.NewLRUClientSessionCache(128)
-)
+var globalSessionCache = tls.NewLRUClientSessionCache(128)
 
 // ParseCertificate converts a cert.Certificate to Certificate.
 func ParseCertificate(c *cert.Certificate) *Certificate {
@@ -66,7 +67,7 @@ func (c *Config) BuildCertificates() []*tls.Certificate {
 				isOcspstapling = true
 			}
 			index := len(certs) - 1
-			go func(cert *tls.Certificate, index int) {
+			go func(entry *Certificate, cert *tls.Certificate, index int) {
 				t := time.NewTicker(time.Duration(hotReloadCertInterval) * time.Second)
 				for {
 					if entry.CertificatePath != "" && entry.KeyPath != "" {
@@ -107,7 +108,7 @@ func (c *Config) BuildCertificates() []*tls.Certificate {
 					certs[index] = cert
 					<-t.C
 				}
-			}(certs[len(certs)-1], index)
+			}(entry, certs[index], index)
 		}
 	}
 	return certs
@@ -121,7 +122,7 @@ func isCertificateExpired(c *tls.Certificate) bool {
 	}
 
 	// If leaf is not there, the certificate is probably not used yet. We trust user to provide a valid certificate.
-	return c.Leaf != nil && c.Leaf.NotAfter.Before(time.Now().Add(-time.Minute))
+	return c.Leaf != nil && c.Leaf.NotAfter.Before(time.Now().Add(time.Minute*2))
 }
 
 func issueCertificate(rawCA *Certificate, domain string) (*tls.Certificate, error) {
@@ -173,6 +174,9 @@ func getGetCertificateFunc(c *tls.Config, ca []*Certificate) func(hello *tls.Cli
 			for _, certificate := range c.Certificates {
 				if !isCertificateExpired(&certificate) {
 					newCerts = append(newCerts, certificate)
+				} else if certificate.Leaf != nil {
+					expTime := certificate.Leaf.NotAfter.Format(time.RFC3339)
+					newError("old certificate for ", domain, " (expire on ", expTime, ") discarded").AtInfo().WriteToLog()
 				}
 			}
 
@@ -189,6 +193,14 @@ func getGetCertificateFunc(c *tls.Config, ca []*Certificate) func(hello *tls.Cli
 				if err != nil {
 					newError("failed to issue new certificate for ", domain).Base(err).WriteToLog()
 					continue
+				}
+				parsed, err := x509.ParseCertificate(newCert.Certificate[0])
+				if err == nil {
+					newCert.Leaf = parsed
+					expTime := parsed.NotAfter.Format(time.RFC3339)
+					newError("new certificate for ", domain, " (expire on ", expTime, ") issued").AtInfo().WriteToLog()
+				} else {
+					newError("failed to parse new certificate for ", domain).Base(err).WriteToLog()
 				}
 
 				access.Lock()
@@ -211,13 +223,13 @@ func getGetCertificateFunc(c *tls.Config, ca []*Certificate) func(hello *tls.Cli
 	}
 }
 
-func getNewGetCertficateFunc(certs []*tls.Certificate) func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+func getNewGetCertificateFunc(certs []*tls.Certificate, rejectUnknownSNI bool) func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	return func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 		if len(certs) == 0 {
-			return nil, newError("empty certs")
+			return nil, errNoCertificates
 		}
 		sni := strings.ToLower(hello.ServerName)
-		if len(certs) == 1 || sni == "" {
+		if !rejectUnknownSNI && (len(certs) == 1 || sni == "") {
 			return certs[0], nil
 		}
 		gsni := "*"
@@ -234,12 +246,42 @@ func getNewGetCertficateFunc(certs []*tls.Certificate) func(hello *tls.ClientHel
 				}
 			}
 		}
+		if rejectUnknownSNI {
+			return nil, errNoCertificates
+		}
 		return certs[0], nil
 	}
 }
 
 func (c *Config) parseServerName() string {
 	return c.ServerName
+}
+
+func (c *Config) verifyPeerCert(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+	if c.PinnedPeerCertificateChainSha256 != nil {
+		hashValue := GenerateCertChainHash(rawCerts)
+		for _, v := range c.PinnedPeerCertificateChainSha256 {
+			if hmac.Equal(hashValue, v) {
+				return nil
+			}
+		}
+		return newError("peer cert is unrecognized: ", base64.StdEncoding.EncodeToString(hashValue))
+	}
+
+	if c.PinnedPeerCertificatePublicKeySha256 != nil {
+		for _, v := range verifiedChains {
+			for _, cert := range v {
+				publicHash := GenerateCertPublicKeyHash(cert)
+				for _, c := range c.PinnedPeerCertificatePublicKeySha256 {
+					if hmac.Equal(publicHash, c) {
+						return nil
+					}
+				}
+			}
+		}
+		return newError("peer public key is unrecognized.")
+	}
+	return nil
 }
 
 // GetTLSConfig converts this Config into tls.Config.
@@ -265,6 +307,7 @@ func (c *Config) GetTLSConfig(opts ...Option) *tls.Config {
 		InsecureSkipVerify:     c.AllowInsecure,
 		NextProtos:             c.NextProtocol,
 		SessionTicketsDisabled: !c.EnableSessionResumption,
+		VerifyPeerCertificate:  c.verifyPeerCert,
 	}
 
 	for _, opt := range opts {
@@ -275,7 +318,7 @@ func (c *Config) GetTLSConfig(opts ...Option) *tls.Config {
 	if len(caCerts) > 0 {
 		config.GetCertificate = getGetCertificateFunc(config, caCerts)
 	} else {
-		config.GetCertificate = getNewGetCertficateFunc(c.BuildCertificates())
+		config.GetCertificate = getNewGetCertificateFunc(c.BuildCertificates(), c.RejectUnknownSni)
 	}
 
 	if sn := c.parseServerName(); len(sn) > 0 {
@@ -320,7 +363,14 @@ func (c *Config) GetTLSConfig(opts ...Option) *tls.Config {
 		}
 	}
 
-	config.PreferServerCipherSuites = c.PreferServerCipherSuites
+	if len(c.MasterKeyLog) > 0 && c.MasterKeyLog != "none" {
+		writer, err := os.OpenFile(c.MasterKeyLog, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
+		if err != nil {
+			newError("failed to open ", c.MasterKeyLog, " as master key log").AtError().Base(err).WriteToLog()
+		} else {
+			config.KeyLogWriter = writer
+		}
+	}
 
 	return config
 }
@@ -329,10 +379,13 @@ func (c *Config) GetTLSConfig(opts ...Option) *tls.Config {
 type Option func(*tls.Config)
 
 // WithDestination sets the server name in TLS config.
+// Due to the incorrect structure of GetTLSConfig(), the config.ServerName will always be empty.
+// So the real logic for SNI is:
+// set it to dest -> overwrite it with servername(if it's len>0).
 func WithDestination(dest net.Destination) Option {
 	return func(config *tls.Config) {
-		if dest.Address.Family().IsDomain() && config.ServerName == "" {
-			config.ServerName = dest.Address.Domain()
+		if config.ServerName == "" {
+			config.ServerName = dest.Address.String()
 		}
 	}
 }

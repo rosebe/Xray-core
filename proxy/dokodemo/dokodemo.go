@@ -18,7 +18,7 @@ import (
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/routing"
-	"github.com/xtls/xray-core/transport/internet"
+	"github.com/xtls/xray-core/transport/internet/stat"
 )
 
 func init() {
@@ -71,12 +71,12 @@ func (d *DokodemoDoor) policy() policy.Session {
 	return p
 }
 
-type hasHandshakeAddress interface {
-	HandshakeAddress() net.Address
+type hasHandshakeAddressContext interface {
+	HandshakeAddressContext(ctx context.Context) net.Address
 }
 
 // Process implements proxy.Inbound.
-func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn internet.Connection, dispatcher routing.Dispatcher) error {
+func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn stat.Connection, dispatcher routing.Dispatcher) error {
 	newError("processing connection from: ", conn.RemoteAddr()).AtDebug().WriteToLog(session.ExportIDToError(ctx))
 	dest := net.Destination{
 		Network: network,
@@ -89,8 +89,8 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 		if outbound := session.OutboundFromContext(ctx); outbound != nil && outbound.Target.IsValid() {
 			dest = outbound.Target
 			destinationOverridden = true
-		} else if handshake, ok := conn.(hasHandshakeAddress); ok {
-			addr := handshake.HandshakeAddress()
+		} else if handshake, ok := conn.(hasHandshakeAddressContext); ok {
+			addr := handshake.HandshakeAddressContext(ctx)
 			if addr != nil {
 				dest.Address = addr
 				destinationOverridden = true
@@ -102,10 +102,10 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 	}
 
 	inbound := session.InboundFromContext(ctx)
-	if inbound != nil {
-		inbound.User = &protocol.MemoryUser{
-			Level: d.config.UserLevel,
-		}
+	inbound.Name = "dokodemo-door"
+	inbound.SetCanSpliceCopy(1)
+	inbound.User = &protocol.MemoryUser{
+		Level: d.config.UserLevel,
 	}
 
 	ctx = log.ContextWithAccessMessage(ctx, &log.AccessMessage{
