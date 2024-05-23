@@ -174,13 +174,15 @@ func DecodeResponseHeader(reader io.Reader, request *protocol.RequestHeader) (*A
 }
 
 // XtlsRead filter and read xtls protocol
-func XtlsRead(reader buf.Reader, writer buf.Writer, timer signal.ActivityUpdater, conn net.Conn, input *bytes.Reader, rawInput *bytes.Buffer, trafficState *proxy.TrafficState, ob *session.Outbound, ctx context.Context) error {
+func XtlsRead(reader buf.Reader, writer buf.Writer, timer *signal.ActivityTimer, conn net.Conn, input *bytes.Reader, rawInput *bytes.Buffer, trafficState *proxy.TrafficState, ob *session.Outbound, ctx context.Context) error {
 	err := func() error {
 		for {
 			if trafficState.ReaderSwitchToDirectCopy {
 				var writerConn net.Conn
+				var inTimer *signal.ActivityTimer
 				if inbound := session.InboundFromContext(ctx); inbound != nil && inbound.Conn != nil {
 					writerConn = inbound.Conn
+					inTimer = inbound.Timer
 					if inbound.CanSpliceCopy == 2 {
 						inbound.CanSpliceCopy = 1
 					}
@@ -188,7 +190,7 @@ func XtlsRead(reader buf.Reader, writer buf.Writer, timer signal.ActivityUpdater
 						ob.CanSpliceCopy = 1
 					}
 				}
-				return proxy.CopyRawConnIfExist(ctx, conn, writerConn, writer, timer)
+				return proxy.CopyRawConnIfExist(ctx, conn, writerConn, writer, timer, inTimer)
 			}
 			buffer, err := reader.ReadMultiBuffer()
 			if !buffer.IsEmpty() {
