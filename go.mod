@@ -60,4 +60,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/gorilla/websocket v1.5.2 => github.com/rosebe/websocket_shioeri v0.0.0-20230904033755-c74d97f9d5a3
+replace github.com/gorilla/websocket v1.5.3 => github.com/rosebe/websocket_shioeri v0.0.0-20230904033755-c74d97f9d5a3
