@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 
+	"github.com/xtls/xray-core/app/commander"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/protocol"
@@ -99,6 +100,28 @@ func (s *handlerServer) AlterInbound(ctx context.Context, request *AlterInboundR
 	return &AlterInboundResponse{}, operation.ApplyInbound(ctx, handler)
 }
 
+func (s *handlerServer) ListInbounds(ctx context.Context, request *ListInboundsRequest) (*ListInboundsResponse, error) {
+	handlers := s.ihm.ListHandlers(ctx)
+	response := &ListInboundsResponse{}
+	if request.GetIsOnlyTags() {
+		for _, handler := range handlers {
+			response.Inbounds = append(response.Inbounds, &core.InboundHandlerConfig{
+				Tag: handler.Tag(),
+			})
+		}
+	} else {
+		for _, handler := range handlers {
+			response.Inbounds = append(response.Inbounds, &core.InboundHandlerConfig{
+				Tag:              handler.Tag(),
+				ReceiverSettings: handler.ReceiverSettings(),
+				ProxySettings:    handler.ProxySettings(),
+			})
+		}
+	}
+
+	return response, nil
+}
+
 func (s *handlerServer) GetInboundUsers(ctx context.Context, request *GetInboundUserRequest) (*GetInboundUserResponse, error) {
 	handler, err := s.ihm.GetHandler(ctx, request.Tag)
 	if err != nil {
@@ -164,6 +187,23 @@ func (s *handlerServer) AlterOutbound(ctx context.Context, request *AlterOutboun
 	return &AlterOutboundResponse{}, operation.ApplyOutbound(ctx, handler)
 }
 
+func (s *handlerServer) ListOutbounds(ctx context.Context, request *ListOutboundsRequest) (*ListOutboundsResponse, error) {
+	handlers := s.ohm.ListHandlers(ctx)
+	response := &ListOutboundsResponse{}
+	for _, handler := range handlers {
+		// Ignore gRPC outbound
+		if _, ok := handler.(*commander.Outbound); ok {
+			continue
+		}
+		response.Outbounds = append(response.Outbounds, &core.OutboundHandlerConfig{
+			Tag:            handler.Tag(),
+			SenderSettings: handler.SenderSettings(),
+			ProxySettings:  handler.ProxySettings(),
+		})
+	}
+	return response, nil
+}
+
 func (s *handlerServer) mustEmbedUnimplementedHandlerServiceServer() {}
 
 type service struct {
@@ -177,7 +217,7 @@ func (s *service) Register(server *grpc.Server) {
 	common.Must(s.v.RequireFeatures(func(im inbound.Manager, om outbound.Manager) {
 		hs.ihm = im
 		hs.ohm = om
-	}))
+	}, false))
 	RegisterHandlerServiceServer(server, hs)
 
 	// For compatibility purposes

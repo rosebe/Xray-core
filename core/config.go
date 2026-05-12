@@ -2,6 +2,7 @@ package core
 
 import (
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/xtls/xray-core/common"
@@ -63,15 +64,16 @@ func GetMergedConfig(args cmdarg.Arg) (string, error) {
 	var files []*ConfigSource
 	supported := []string{"json", "yaml", "toml"}
 	for _, file := range args {
-		format := getFormat(file)
-		for _, s := range supported {
-			if s == format {
-				files = append(files, &ConfigSource{
-					Name:   file,
-					Format: format,
-				})
-				break
-			}
+		format := "json"
+		if file != "stdin:" {
+			format = GetFormat(file)
+		}
+
+		if slices.Contains(supported, format) {
+			files = append(files, &ConfigSource{
+				Name:   file,
+				Format: format,
+			})
 		}
 	}
 	return ConfigMergedFormFiles(files)
@@ -100,7 +102,7 @@ func getExtension(filename string) string {
 	return filename[idx+1:]
 }
 
-func getFormat(filename string) string {
+func GetFormat(filename string) string {
 	return GetFormatByExtension(getExtension(filename))
 }
 
@@ -114,7 +116,7 @@ func LoadConfig(formatName string, input interface{}) (*Config, error) {
 
 			if formatName == "auto" {
 				if file != "stdin:" {
-					f = getFormat(file)
+					f = GetFormat(file)
 				} else {
 					f = "json"
 				}

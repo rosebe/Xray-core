@@ -60,9 +60,24 @@ func (s *routingServer) AddRule(ctx context.Context, request *AddRuleRequest) (*
 	return nil, errors.New("unsupported router implementation")
 
 }
+
 func (s *routingServer) RemoveRule(ctx context.Context, request *RemoveRuleRequest) (*RemoveRuleResponse, error) {
 	if bo, ok := s.router.(routing.Router); ok {
 		return &RemoveRuleResponse{}, bo.RemoveRule(request.RuleTag)
+	}
+	return nil, errors.New("unsupported router implementation")
+}
+
+func (s *routingServer) ListRule(ctx context.Context, request *ListRuleRequest) (*ListRuleResponse, error) {
+	if bo, ok := s.router.(routing.Router); ok {
+		response := &ListRuleResponse{}
+		for _, v := range bo.ListRule() {
+			response.Rules = append(response.Rules, &ListRuleItem{
+				Tag:     v.GetOutboundTag(),
+				RuleTag: v.GetRuleTag(),
+			})
+		}
+		return response, nil
 	}
 	return nil, errors.New("unsupported router implementation")
 }
@@ -135,7 +150,7 @@ func (s *service) Register(server *grpc.Server) {
 		vCoreDesc := RoutingService_ServiceDesc
 		vCoreDesc.ServiceName = "v2ray.core.app.router.command.RoutingService"
 		server.RegisterService(&vCoreDesc, rs)
-	}))
+	}, false))
 }
 
 func init() {
