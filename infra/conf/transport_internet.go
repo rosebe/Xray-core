@@ -405,8 +405,8 @@ func (c *SplitHTTPConfig) Build() (proto.Message, error) {
 		return nil, errors.New("maxConnections cannot be specified together with maxConcurrency")
 	}
 	if c.Xmux == (XmuxConfig{}) {
-		c.Xmux.MaxConcurrency.From = 1
-		c.Xmux.MaxConcurrency.To = 1
+		c.Xmux.MaxConnections.From = 6
+		c.Xmux.MaxConnections.To = 6
 		c.Xmux.HMaxRequestTimes.From = 600
 		c.Xmux.HMaxRequestTimes.To = 900
 		c.Xmux.HMaxReusableSecs.From = 1800
@@ -572,7 +572,6 @@ func (c *HysteriaConfig) Build() (proto.Message, error) {
 	}
 
 	config := &hysteria.Config{}
-	config.Version = c.Version
 	config.Auth = c.Auth
 	config.UdpIdleTimeout = c.UdpIdleTimeout
 	config.MasqType = c.Masquerade.Type
