@@ -117,7 +117,7 @@ func (c *UConn) WebsocketHandshakeContext(ctx context.Context) error {
 	ALPN := slices.Clone(config.NextProtos)
 	// set other kinds of ALPN to http/1.1
 	if !slices.Equal(ALPN, []string{"h2", "http/1.1"}) {
-		ALPN = []string{"http/1.1"}
+		ALPN = []string{"h2", "http/1.1"}
 	}
 	// Build the handshake state. This will apply every variable of the TLS of the
 	// fingerprint in the UConn
@@ -127,7 +127,7 @@ func (c *UConn) WebsocketHandshakeContext(ctx context.Context) error {
 	// Do not modify outer ALPN if ECH is used
 	// Outer ALPN will be h2,http/1.1, and real http/1.1 in config will be hidden in ECH
 	if config.EncryptedClientHelloConfigList != nil {
-		config.NextProtos = []string{"http/1.1"}
+		config.NextProtos = []string{"h2", "http/1.1"}
 		return c.HandshakeContext(ctx)
 	}
 	// Iterate over extensions and check for utls.ALPNExtension
